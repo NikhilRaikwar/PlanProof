@@ -51,7 +51,7 @@ class ProviderGateway:
                 self.settings.openrouter_primary_model,
                 request,
             )
-        except (httpx.TimeoutException, httpx.TransportError, RuntimeError):
+        except (httpx.TimeoutException, httpx.TransportError, ProviderUnavailable, RuntimeError):
             result = await self._attempt(
                 "aimlapi",
                 self.settings.aimlapi_base_url,
@@ -92,6 +92,7 @@ class ProviderGateway:
                         json={
                             "model": model,
                             "temperature": 0,
+                            "response_format": {"type": "json_object"},
                             "messages": [
                                 {"role": "system", "content": request.system},
                                 {"role": "user", "content": request.user},
@@ -112,11 +113,21 @@ class ProviderGateway:
                     completion_tokens=usage.get("completion_tokens"),
                     total_tokens=usage.get("total_tokens"),
                 )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in {408, 429, 500, 502, 503, 504}:
+                    raise
+                if retry == 1:
+                    raise ProviderUnavailable(provider) from exc
+                await asyncio.sleep((0.1 * (2**retry)) + random.uniform(0, 0.05))
             except (httpx.TimeoutException, httpx.TransportError):
                 if retry == 1:
                     raise
                 await asyncio.sleep((0.1 * (2**retry)) + random.uniform(0, 0.05))
         raise RuntimeError("unreachable")
+
+
+class ProviderUnavailable(RuntimeError):
+    pass
 
 
 def parse_json_object(content: str) -> dict:
