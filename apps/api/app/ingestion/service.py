@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import shutil
 import subprocess
 import tempfile
 from os import environ
 from pathlib import Path
+
+from pymongo.errors import DuplicateKeyError
 
 from app.domain.runs import SnapshotStatus
 from app.ingestion.parsers import ExtractedSymbol, extract_jsts_symbols, extract_python_symbols
@@ -59,7 +62,26 @@ class SnapshotIngestionService:
                 return existing
             snapshot.resolved_commit_sha = sha
             snapshot.status = SnapshotStatus.HASHING
-            await self.records.update_snapshot(snapshot)
+            try:
+                await self.records.update_snapshot(snapshot)
+            except DuplicateKeyError as error:
+                # A concurrent ingest may have resolved the same immutable source
+                # between our preflight lookup and this unique-indexed transition.
+                # Reuse only its completed immutable snapshot; never continue with
+                # two competing index writers for the same identity.
+                for _ in range(20):
+                    existing = await self.records.get_ready_snapshot(
+                        source.identity, sha, snapshot.parser_version, snapshot.index_version
+                    )
+                    if existing is not None:
+                        await self.records.delete_snapshot(snapshot.id)
+                        return existing
+                    await asyncio.sleep(0.05)
+                snapshot.resolved_commit_sha = None
+                snapshot.status = SnapshotStatus.FAILED
+                snapshot.failure_category = "INGESTION_CONFLICT"
+                await self.records.update_snapshot(snapshot)
+                raise RuntimeError("immutable snapshot conflict") from error
             files, root_hash, ignored_files = self._inventory(repository_root)
             snapshot.root_content_hash = root_hash
             snapshot.files_discovered = len(files)

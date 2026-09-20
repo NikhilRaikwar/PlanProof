@@ -7,7 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.core.config import Settings
 from app.domain.runs import HumanQuestion, RunEvent, VerificationRunStatus
-from app.domain.verification import ObligationCategory, ObligationStatus
+from app.domain.verification import ObligationCategory, ObligationStatus, ToolRun, ToolRunStatus
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
 from app.services.evidence import EvidenceAuthority
@@ -42,6 +42,8 @@ class VerificationWorkflow:
             VerificationRunStatus.COMPLETE,
             VerificationRunStatus.BLOCKED,
             VerificationRunStatus.INCONCLUSIVE,
+            VerificationRunStatus.HUMAN_WAIT,
+            VerificationRunStatus.HUMAN_DECISION_REQUIRED,
         }:
             return state
         run.started_at = run.started_at or datetime.now(UTC)
@@ -50,15 +52,23 @@ class VerificationWorkflow:
             run.status = VerificationRunStatus.EXTRACTING_OBLIGATIONS
             await self.runs.update_run(run)
             plan = await self.runs.get_plan_version(run.plan_version_id)
-            extracted = await ObligationExtractionService(
-                ProviderGateway(self.settings, self.verification), self.verification
-            ).extract(
-                run.project_id,
-                run.snapshot_id,
-                run.plan_version_id,
-                plan.change_request,
-                plan.candidate_plan,
-            )
+            try:
+                extracted = await ObligationExtractionService(
+                    ProviderGateway(self.settings, self.verification), self.verification
+                ).extract(
+                    run.project_id,
+                    run.snapshot_id,
+                    run.plan_version_id,
+                    plan.change_request,
+                    plan.candidate_plan,
+                )
+            except Exception:
+                run.status = VerificationRunStatus.FAILED
+                await self.runs.update_run(run)
+                await self._event(
+                    run.id, "run_failed", "Structured obligation extraction failed safely"
+                )
+                return state
             for obligation in extracted:
                 obligation.run_id = run.id
                 await self.verification.update_obligation(obligation)
@@ -166,6 +176,16 @@ class VerificationWorkflow:
                 await self._event(run.id, "obligation_completed", f"Obligation became {terminal}")
                 return
             except Exception:
+                await self.verification.create_tool_run(
+                    ToolRun(
+                        snapshot_id=run.snapshot_id,
+                        tool_name="search_code_lexical",
+                        input_hash="workflow-tool-failure",
+                        status=ToolRunStatus.FAILED,
+                        safe_error_class="TOOL_FAILURE",
+                        duration_ms=0,
+                    )
+                )
                 await self._event(run.id, "tool_failed", "Repository tool failed safely")
         obligation.status = ObligationStatus.INCONCLUSIVE
 

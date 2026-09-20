@@ -88,12 +88,10 @@ async def get_verification_run(run_id: str, mongo: Annotated[MongoManager, Depen
     if not run:
         raise HTTPException(404, "verification run not found")
     database = mongo.database()
-    counts = {
-        item["_id"]: item["count"]
-        async for item in database.proof_obligations.aggregate(
-            [{"$match": {"run_id": run.id}}, {"$group": {"_id": "$status", "count": {"$sum": 1}}}]
-        )
-    }
+    count_cursor = await database.proof_obligations.aggregate(
+        [{"$match": {"run_id": run.id}}, {"$group": {"_id": "$status", "count": {"$sum": 1}}}]
+    )
+    counts = {item["_id"]: item["count"] async for item in count_cursor}
     questions = [
         {"id": item["id"], "status": item["status"], "obligation_id": item["obligation_id"]}
         async for item in database.human_questions.find({"run_id": run.id})
@@ -168,6 +166,15 @@ async def answer_human_question(
     run.completed_obligation_ids.append(obligation.id)
     run.status = VerificationRunStatus.QUEUED
     await runs.update_run(run)
+    latest = await mongo.database().events.find_one({"run_id": run.id}, sort=[("sequence", -1)])
+    await runs.append_event(
+        RunEvent(
+            run_id=run.id,
+            sequence=(latest["sequence"] if latest else 0) + 1,
+            event_type="human_answered",
+            summary="Human authority answer persisted; workflow re-queued",
+        )
+    )
     execute_verification_run.send(run.id)
     return question
 
