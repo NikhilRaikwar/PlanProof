@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     mongodb_uri: SecretStr | None = None
     mongodb_database: str = Field(default="planproof", min_length=1, max_length=64)
+    mongo_server_selection_timeout_ms: int = Field(default=3_000, ge=50, le=30_000)
 
     redis_url: SecretStr | None = None
 

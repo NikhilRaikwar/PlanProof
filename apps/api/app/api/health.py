@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.api.dependencies import get_mongo
 from app.core.errors import DependencyNotReadyError
+from app.db.indexes import ensure_indexes
 from app.db.mongo import MongoManager
 
 router = APIRouter(prefix="/health", tags=["health"])
@@ -24,6 +25,7 @@ async def live() -> HealthResponse:
 async def ready(mongo: Annotated[MongoManager, Depends(get_mongo)]) -> HealthResponse:
     try:
         await mongo.ping()
+        await ensure_indexes(mongo.database())
     except DependencyNotReadyError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

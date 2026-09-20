@@ -13,7 +13,7 @@ class ProjectsRepository:
 
     async def create(self, project: Project) -> Project:
         try:
-            await self._mongo.database().projects.insert_one(project.model_dump(mode="json"))
+            await self._mongo.database().projects.insert_one(project.model_dump(mode="python"))
         except DuplicateKeyError as exc:
             raise DuplicateResourceError(f"Project {project.id} already exists") from exc
         return project

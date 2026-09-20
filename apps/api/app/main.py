@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health, projects
 from app.core.config import Settings, get_settings
-from app.db.indexes import ensure_indexes
 from app.db.mongo import MongoManager
 
 
@@ -19,9 +18,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         try:
-            if mongo.is_configured:
-                await mongo.connect()
-                await ensure_indexes(mongo.database())
             yield
         finally:
             await mongo.close()

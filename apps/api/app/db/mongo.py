@@ -24,8 +24,8 @@ class MongoManager:
         self._client = AsyncMongoClient(
             self._settings.mongodb_uri.get_secret_value(),
             appname="planproof-api",
-            serverSelectionTimeoutMS=3_000,
-            connectTimeoutMS=3_000,
+            serverSelectionTimeoutMS=self._settings.mongo_server_selection_timeout_ms,
+            connectTimeoutMS=self._settings.mongo_server_selection_timeout_ms,
         )
 
     async def close(self) -> None:

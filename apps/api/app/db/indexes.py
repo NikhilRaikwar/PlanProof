@@ -6,7 +6,21 @@ from pymongo.asynchronous.database import AsyncDatabase
 INDEXES: dict[str, list[IndexModel]] = {
     "projects": [IndexModel([("owner_id", ASCENDING), ("created_at", DESCENDING)])],
     "repository_snapshots": [
-        IndexModel([("project_id", ASCENDING), ("resolved_commit_sha", ASCENDING)], unique=True),
+        IndexModel(
+            [("project_id", ASCENDING), ("resolved_commit_sha", ASCENDING)],
+            unique=True,
+            partialFilterExpression={"resolved_commit_sha": {"$type": "string"}},
+        ),
+        IndexModel(
+            [
+                ("repository_identity", ASCENDING),
+                ("resolved_commit_sha", ASCENDING),
+                ("parser_version", ASCENDING),
+                ("index_version", ASCENDING),
+            ],
+            unique=True,
+            partialFilterExpression={"resolved_commit_sha": {"$type": "string"}},
+        ),
     ],
     "repository_files": [
         IndexModel([("snapshot_id", ASCENDING), ("path", ASCENDING)], unique=True),
