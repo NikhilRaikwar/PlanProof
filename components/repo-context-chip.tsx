@@ -27,21 +27,17 @@ export interface RepoContextChipProps {
 }
 
 export function RepoContextChip({
-  repo = 'nikhilraikwar / planproof',
-  branch = 'main',
-  commit = '8f3c1a2',
-  syncedText = 'Synced just now'
+  repo = 'No snapshot selected',
+  branch,
+  commit,
+  syncedText = 'Select a repository'
 }: RepoContextChipProps) {
   return (
     <div className="topbar-repo-badge">
       <GithubIcon size={14} />
       <span style={{ fontWeight: 700, color: '#0F172A' }}>{repo}</span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#64748B' }}>
-        <GitBranch size={12} /> {branch}
-      </span>
-      <span className="repo-commit-pill">
-        {commit}
-      </span>
+      {branch && <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#64748B' }}><GitBranch size={12} /> {branch}</span>}
+      {commit && <span className="repo-commit-pill">{commit}</span>}
       <span className="repo-synced-status">
         <span className="synced-green-dot" />
         {syncedText}

@@ -15,7 +15,7 @@ export function AppTopbar({ onToggleMobile }: AppTopbarProps) {
 
   const getBreadcrumbTitle = () => {
     if (pathname === '/workspace/new-verification' || pathname === '/workspace') return 'New verification'
-    if (pathname.startsWith('/workspace/runs/')) return 'RUNS / Partial Refunds'
+    if (pathname.startsWith('/workspace/runs/')) return 'Run report'
     if (pathname === '/workspace/runs') return 'Runs'
     if (pathname === '/workspace/repositories') return 'Repositories'
     if (pathname === '/workspace/evidence') return 'Evidence'
