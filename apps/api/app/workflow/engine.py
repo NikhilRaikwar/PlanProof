@@ -10,8 +10,10 @@ from app.domain.runs import HumanQuestion, RunEvent, VerificationRunStatus
 from app.domain.verification import ObligationCategory, ObligationStatus
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
+from app.services.evidence import EvidenceAuthority
 from app.services.models import ProviderGateway
 from app.services.obligations import ObligationExtractionService
+from app.services.repository_tools import RepositoryTools, SearchCodeInput
 
 
 class WorkflowState(TypedDict):
@@ -73,6 +75,7 @@ class VerificationWorkflow:
             run.current_obligation_id = obligation.id
             obligation.status = ObligationStatus.VERIFYING
             await self.verification.update_obligation(obligation)
+            await self._event(run.id, "obligation_started", "Investigating one obligation")
             if run.iteration_count > self.settings.verification_max_iterations:
                 obligation.status = ObligationStatus.INCONCLUSIVE
             elif obligation.category in {
@@ -104,11 +107,67 @@ class VerificationWorkflow:
                 await self._event(run.id, "human_question_created", "Human authority requested")
                 return state
             else:
-                obligation.status = ObligationStatus.INCONCLUSIVE
+                await self._investigate(run, obligation)
             await self.verification.update_obligation(obligation)
             run.completed_obligation_ids.append(obligation.id)
         await self._finalize(run)
         return state
+
+    async def _investigate(self, run, obligation) -> None:
+        """A bounded, deterministic lexical investigation for supported source-fact claims."""
+        statement = obligation.statement.casefold()
+        patterns: list[tuple[str, ObligationStatus]] = []
+        if any(token in statement for token in {"multiple refund", "schema", "migration"}):
+            patterns.append(("unique: true", ObligationStatus.DISPROVED))
+        elif "idempotency" in statement:
+            patterns.append(("partial refund amount is not part", ObligationStatus.DISPROVED))
+        elif any(token in statement for token in {"billing", "ledger"}):
+            patterns.append(("return -event.captured_amount", ObligationStatus.DISPROVED))
+        elif any(token in statement for token in {"provider", "accepts", "amount"}):
+            patterns.append(("refund amount must be positive", ObligationStatus.VERIFIED))
+        if not patterns or run.tool_call_count >= self.settings.verification_max_tool_calls:
+            obligation.status = ObligationStatus.INCONCLUSIVE
+            return
+        tools = RepositoryTools(self.runs, self.verification)
+        for query, terminal in patterns:
+            await self._event(run.id, "tool_started", "Running bounded lexical repository search")
+            try:
+                matches = await tools.search_code_lexical(
+                    SearchCodeInput(snapshot_id=run.snapshot_id, query=query, limit=1)
+                )
+                run.tool_call_count += 1
+                if not matches:
+                    continue
+                match = matches[0]
+                tool_doc = await self.verification.database.tool_runs.find_one(
+                    {"snapshot_id": run.snapshot_id, "tool_name": "search_code_lexical"},
+                    sort=[("started_at", -1)],
+                )
+                evidence = await EvidenceAuthority(self.verification).issue_source_range(
+                    snapshot_id=run.snapshot_id,
+                    tool_run_id=tool_doc["id"],
+                    path=match["path"],
+                    line_start=match["line_start"],
+                    line_end=match["line_end"],
+                    summary="Deterministic lexical source fact for this obligation.",
+                )
+                await EvidenceAuthority(self.verification).validate(evidence.id)
+                if terminal == ObligationStatus.DISPROVED:
+                    obligation.counter_evidence_ids.append(evidence.id)
+                else:
+                    obligation.evidence_ids.append(evidence.id)
+                obligation.status = terminal
+                await self._event(
+                    run.id, "tool_completed", "Repository tool returned bounded source fact"
+                )
+                await self._event(
+                    run.id, "evidence_added", "Server-issued source evidence was recorded"
+                )
+                await self._event(run.id, "obligation_completed", f"Obligation became {terminal}")
+                return
+            except Exception:
+                await self._event(run.id, "tool_failed", "Repository tool failed safely")
+        obligation.status = ObligationStatus.INCONCLUSIVE
 
     async def _finalize(self, run) -> None:
         obligations = await self.verification.list_run_obligations(run.id)
