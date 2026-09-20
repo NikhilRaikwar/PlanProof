@@ -52,11 +52,7 @@ class RunRepository:
         if files:
             await self._database.repository_files.insert_many(
                 [
-                    {
-                        ("path" if k == "relative_path" else k): v
-                        for k, v in file.items()
-                        if k != "text"
-                    }
+                    {("path" if k == "relative_path" else k): v for k, v in file.items()}
                     | {"snapshot_id": snapshot_id}
                     for file in files
                 ]

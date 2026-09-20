@@ -36,9 +36,18 @@ INDEXES: dict[str, list[IndexModel]] = {
     ],
     "proof_obligations": [
         IndexModel([("run_id", ASCENDING), ("status", ASCENDING), ("criticality", ASCENDING)]),
+        IndexModel(
+            [("plan_version_id", ASCENDING), ("normalized_statement", ASCENDING)], unique=True
+        ),
     ],
     "evidence": [IndexModel([("snapshot_id", ASCENDING), ("source_tool_run_id", ASCENDING)])],
-    "tool_runs": [IndexModel([("run_id", ASCENDING), ("started_at", ASCENDING)])],
+    "tool_runs": [
+        IndexModel([("run_id", ASCENDING), ("started_at", ASCENDING)]),
+        IndexModel([("snapshot_id", ASCENDING), ("tool_name", ASCENDING)]),
+    ],
+    "model_calls": [
+        IndexModel([("provider", ASCENDING), ("model", ASCENDING), ("created_at", DESCENDING)])
+    ],
     "events": [IndexModel([("run_id", ASCENDING), ("sequence", ASCENDING)], unique=True)],
     "human_questions": [IndexModel([("status", ASCENDING), ("updated_at", ASCENDING)])],
 }
