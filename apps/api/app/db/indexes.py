@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from pymongo import ASCENDING, DESCENDING, IndexModel
+from pymongo.asynchronous.database import AsyncDatabase
+
+INDEXES: dict[str, list[IndexModel]] = {
+    "projects": [IndexModel([("owner_id", ASCENDING), ("created_at", DESCENDING)])],
+    "repository_snapshots": [
+        IndexModel([("project_id", ASCENDING), ("resolved_commit_sha", ASCENDING)], unique=True),
+    ],
+    "repository_files": [
+        IndexModel([("snapshot_id", ASCENDING), ("path", ASCENDING)], unique=True),
+    ],
+    "code_symbols": [IndexModel([("snapshot_id", ASCENDING), ("qualified_name", ASCENDING)])],
+    "code_chunks": [
+        IndexModel([("snapshot_id", ASCENDING), ("path", ASCENDING), ("symbol", ASCENDING)]),
+    ],
+    "plan_versions": [IndexModel([("project_id", ASCENDING), ("version", ASCENDING)], unique=True)],
+    "verification_runs": [
+        IndexModel([("project_id", ASCENDING), ("created_at", DESCENDING)]),
+        IndexModel([("status", ASCENDING), ("updated_at", ASCENDING)]),
+    ],
+    "proof_obligations": [
+        IndexModel([("run_id", ASCENDING), ("status", ASCENDING), ("criticality", ASCENDING)]),
+    ],
+    "evidence": [IndexModel([("snapshot_id", ASCENDING), ("source_tool_run_id", ASCENDING)])],
+    "tool_runs": [IndexModel([("run_id", ASCENDING), ("started_at", ASCENDING)])],
+    "events": [IndexModel([("run_id", ASCENDING), ("sequence", ASCENDING)], unique=True)],
+    "human_questions": [IndexModel([("status", ASCENDING), ("updated_at", ASCENDING)])],
+}
+
+
+async def ensure_indexes(database: AsyncDatabase) -> None:
+    """Create operational indexes safely and idempotently at service startup/deploy time."""
+
+    for collection, indexes in INDEXES.items():
+        await database.get_collection(collection).create_indexes(indexes)
