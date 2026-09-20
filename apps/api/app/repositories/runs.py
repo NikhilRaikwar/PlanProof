@@ -24,6 +24,55 @@ class RunRepository:
         document = await self._database.repository_snapshots.find_one({"id": snapshot_id})
         return RepositorySnapshot.model_validate(document) if document else None
 
+    async def get_ready_snapshot(
+        self, identity: str, sha: str, parser: str, index: str
+    ) -> RepositorySnapshot | None:
+        document = await self._database.repository_snapshots.find_one(
+            {
+                "repository_identity": identity,
+                "resolved_commit_sha": sha,
+                "parser_version": parser,
+                "index_version": index,
+                "status": "READY",
+            }
+        )
+        return RepositorySnapshot.model_validate(document) if document else None
+
+    async def update_snapshot(self, snapshot: RepositorySnapshot) -> None:
+        await self._database.repository_snapshots.update_one(
+            {"id": snapshot.id}, {"$set": snapshot.model_dump(mode="python")}
+        )
+
+    async def delete_snapshot(self, snapshot_id: str) -> None:
+        await self._database.repository_snapshots.delete_one({"id": snapshot_id})
+
+    async def replace_index(self, snapshot_id: str, files: list[dict], symbols: list[dict]) -> None:
+        await self._database.repository_files.delete_many({"snapshot_id": snapshot_id})
+        await self._database.code_symbols.delete_many({"snapshot_id": snapshot_id})
+        if files:
+            await self._database.repository_files.insert_many(
+                [
+                    {
+                        ("path" if k == "relative_path" else k): v
+                        for k, v in file.items()
+                        if k != "text"
+                    }
+                    | {"snapshot_id": snapshot_id}
+                    for file in files
+                ]
+            )
+        if symbols:
+            await self._database.code_symbols.insert_many(
+                [
+                    {
+                        ("path" if key == "relative_path" else key): value
+                        for key, value in symbol.items()
+                    }
+                    | {"snapshot_id": snapshot_id}
+                    for symbol in symbols
+                ]
+            )
+
     async def create_plan_version(self, plan_version: PlanVersion) -> PlanVersion:
         try:
             await self._database.plan_versions.insert_one(plan_version.model_dump(mode="python"))

@@ -46,6 +46,7 @@ async def test_atlas_persists_and_reloads_phase_one_records() -> None:
                 name="Atlas persistence integration",
                 owner_id=owner_id,
                 repository_source_type=RepositorySourceType.SEEDED,
+                fixture_id="partial-refunds-v1",
             )
         )
         await projects.create(project)

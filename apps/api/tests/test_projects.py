@@ -9,6 +9,7 @@ def test_seeded_project_does_not_require_url() -> None:
             name="Partial refunds demo",
             owner_id="test-owner",
             repository_source_type=RepositorySourceType.SEEDED,
+            fixture_id="partial-refunds-v1",
         )
     )
     assert project.repository_url is None

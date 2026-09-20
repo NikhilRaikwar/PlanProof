@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import hashlib
+import shutil
+import subprocess
+import tempfile
+from os import environ
+from pathlib import Path
+
+from app.domain.runs import SnapshotStatus
+from app.ingestion.parsers import ExtractedSymbol, extract_jsts_symbols, extract_python_symbols
+from app.ingestion.sources import PublicGitHubSource, RepositorySource, SeededFixtureSource
+from app.repositories.runs import RunRepository
+
+PARSER_VERSION = "ast-regex-v1"
+INDEX_VERSION = "files-symbols-v1"
+_IGNORE_DIRS = {
+    ".git",
+    "node_modules",
+    ".next",
+    "dist",
+    "build",
+    "coverage",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "vendor",
+    "generated",
+}
+_LANGUAGES = {
+    ".py": "python",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".js": "javascript",
+    ".jsx": "javascript",
+}
+
+
+class SnapshotIngestionService:
+    def __init__(self, records: RunRepository) -> None:
+        self.records = records
+
+    async def ingest(self, snapshot_id: str, source: RepositorySource):
+        snapshot = await self.records.get_snapshot(snapshot_id)
+        if snapshot is None:
+            raise ValueError("snapshot not found")
+        workspace: Path | None = None
+        try:
+            snapshot.status = SnapshotStatus.RESOLVING
+            await self.records.update_snapshot(snapshot)
+            snapshot.status = SnapshotStatus.MATERIALIZING
+            await self.records.update_snapshot(snapshot)
+            workspace, repository_root, sha = self._materialize(source)
+            existing = await self.records.get_ready_snapshot(
+                source.identity, sha, snapshot.parser_version, snapshot.index_version
+            )
+            if existing is not None and existing.id != snapshot.id:
+                await self.records.delete_snapshot(snapshot.id)
+                return existing
+            snapshot.resolved_commit_sha = sha
+            snapshot.status = SnapshotStatus.HASHING
+            await self.records.update_snapshot(snapshot)
+            files, root_hash, ignored_files = self._inventory(repository_root)
+            snapshot.root_content_hash = root_hash
+            snapshot.files_discovered = len(files)
+            snapshot.files_indexed = len(files)
+            snapshot.ignored_files = ignored_files
+            snapshot.supported_languages = sorted({file["language"] for file in files})
+            snapshot.status = SnapshotStatus.PARSING
+            await self.records.update_snapshot(snapshot)
+            symbols = self._symbols(files)
+            snapshot.status = SnapshotStatus.INDEXING
+            await self.records.update_snapshot(snapshot)
+            await self.records.replace_index(snapshot.id, files, symbols)
+            snapshot.files_indexed = len(files)
+            snapshot.symbols_indexed = len(symbols)
+            snapshot.status = SnapshotStatus.READY
+            await self.records.update_snapshot(snapshot)
+            return snapshot
+        except Exception:
+            snapshot.status = SnapshotStatus.FAILED
+            snapshot.failure_category = "INGESTION_FAILED"
+            await self.records.update_snapshot(snapshot)
+            raise
+        finally:
+            if workspace is not None:
+                shutil.rmtree(workspace, ignore_errors=True)
+
+    def _materialize(self, source: RepositorySource) -> tuple[Path, Path, str]:
+        root = Path(tempfile.mkdtemp(prefix="planproof-ingest-"))
+        destination = root / "repository"
+        try:
+            if isinstance(source, SeededFixtureSource):
+                shutil.copytree(source.fixture_path, destination, symlinks=False)
+                return root, destination, hashlib.sha256(self._tree_bytes(destination)).hexdigest()
+            assert isinstance(source, PublicGitHubSource)
+            command = ["git", "-c", "credential.helper=", "clone", "--depth", "1"]
+            if source.requested_ref:
+                command.extend(["--branch", source.requested_ref])
+            command.extend([source.clone_url, str(destination)])
+            git_environment = {**environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "Never"}
+            subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                timeout=60,
+                env=git_environment,
+            )
+            sha = subprocess.run(
+                ["git", "-C", str(destination), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            ).stdout.strip()
+            return root, destination, sha
+        except Exception:
+            shutil.rmtree(root, ignore_errors=True)
+            raise
+
+    def _inventory(self, root: Path) -> tuple[list[dict], str, int]:
+        entries: list[dict] = []
+        ignored = 0
+        for path in sorted(root.rglob("*")):
+            relative_path = path.relative_to(root)
+            if any(part in _IGNORE_DIRS for part in relative_path.parts):
+                if path.is_file() or path.is_symlink():
+                    ignored += 1
+                continue
+            if not path.is_file() or path.is_symlink():
+                continue
+            relative = relative_path.as_posix()
+            if path.stat().st_size > 1_000_000:
+                ignored += 1
+                continue
+            raw = path.read_bytes()
+            if b"\0" in raw or path.suffix.lower() not in _LANGUAGES:
+                ignored += 1
+                continue
+            entries.append(
+                {
+                    "relative_path": relative,
+                    "content_hash": hashlib.sha256(raw).hexdigest(),
+                    "size_bytes": len(raw),
+                    "language": _LANGUAGES[path.suffix.lower()],
+                    "index_state": "INDEXED",
+                    "text": raw.decode("utf-8", errors="strict"),
+                }
+            )
+        root_hash = hashlib.sha256(
+            "".join(f"{x['relative_path']}:{x['content_hash']}\n" for x in entries).encode()
+        ).hexdigest()
+        return entries, root_hash, ignored
+
+    def _symbols(self, files: list[dict]) -> list[dict]:
+        result: list[dict] = []
+        for file in files:
+            extracted: list[ExtractedSymbol] = (
+                extract_python_symbols(Path(file["relative_path"]), file["text"])
+                if file["language"] == "python"
+                else extract_jsts_symbols(file["text"])
+            )
+            result.extend(
+                {"relative_path": file["relative_path"], **symbol.__dict__} for symbol in extracted
+            )
+        return result
+
+    @staticmethod
+    def _tree_bytes(root: Path) -> bytes:
+        return b"".join(path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file())

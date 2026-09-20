@@ -11,7 +11,7 @@ from app.domain.common import new_id, now_utc
 class SnapshotStatus(StrEnum):
     CREATED = "CREATED"
     RESOLVING = "RESOLVING"
-    CLONING = "CLONING"
+    MATERIALIZING = "MATERIALIZING"
     HASHING = "HASHING"
     PARSING = "PARSING"
     INDEXING = "INDEXING"
@@ -31,6 +31,7 @@ class RepositorySnapshot(BaseModel):
     id: str = Field(default_factory=new_id)
     project_id: str
     repository_identity: str
+    source_type: str | None = None
     requested_ref: str | None = None
     resolved_commit_sha: str | None = None
     root_content_hash: str | None = None
@@ -41,6 +42,8 @@ class RepositorySnapshot(BaseModel):
     files_indexed: int = 0
     symbols_indexed: int = 0
     unsupported_files: int = 0
+    ignored_files: int = 0
+    supported_languages: list[str] = Field(default_factory=list)
     failure_category: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
