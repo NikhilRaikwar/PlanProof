@@ -28,6 +28,12 @@ async def create_project(
     return await ProjectsRepository(mongo).create(project)
 
 
+@router.get("", response_model=list[Project])
+async def list_projects(mongo: Annotated[MongoManager, Depends(get_mongo)]) -> list[Project]:
+    cursor = mongo.database().projects.find({}).sort("created_at", -1)
+    return [Project.model_validate(item) async for item in cursor]
+
+
 @router.get("/{project_id}", response_model=Project)
 async def get_project(
     project_id: str,

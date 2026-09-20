@@ -83,7 +83,6 @@ export function AppSidebar({ mobileOpen = false, onCloseMobile }: AppSidebarProp
                   <Activity size={15} />
                   <span>Runs</span>
                 </div>
-                <span className="nav-item-count-badge">12</span>
               </Link>
 
               <Link 
@@ -96,7 +95,6 @@ export function AppSidebar({ mobileOpen = false, onCloseMobile }: AppSidebarProp
                   <Layers3 size={15} />
                   <span>Repositories</span>
                 </div>
-                <span className="nav-item-count-badge">3</span>
               </Link>
             </div>
           </div>
@@ -139,7 +137,7 @@ export function AppSidebar({ mobileOpen = false, onCloseMobile }: AppSidebarProp
       <div className="sidebar-bottom-pill-box" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px' }}>
         <div className="engine-status-banner" style={{ padding: '6px 10px', fontSize: '10.5px' }}>
           <span className="engine-status-dot" />
-          <span>Verification engine operational</span>
+          <span>Backend status loads on demand</span>
         </div>
 
         {/* User Workspace Profile Card with Upward Dropdown at Bottom */}
@@ -156,7 +154,7 @@ export function AppSidebar({ mobileOpen = false, onCloseMobile }: AppSidebarProp
                 <User size={15} strokeWidth={2.5} />
               </div>
               <div className="profile-info-stack">
-                <strong className="profile-user-name">Nikhil Raikwar</strong>
+                <strong className="profile-user-name">Local session</strong>
                 <span className="profile-workspace-label">Personal workspace</span>
               </div>
             </div>
@@ -206,8 +204,8 @@ export function AppSidebar({ mobileOpen = false, onCloseMobile }: AppSidebarProp
                       <User size={16} strokeWidth={2.5} />
                     </div>
                     <div style={{ minWidth: 0 }}>
-                      <strong style={{ fontSize: 12.5, color: '#0F172A', display: 'block', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Nikhil Raikwar</strong>
-                      <span style={{ fontSize: 11, color: '#64748B', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>nikhil@planproof.dev</span>
+                      <strong style={{ fontSize: 12.5, color: '#0F172A', display: 'block', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Local session</strong>
+                      <span style={{ fontSize: 11, color: '#64748B', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Authentication is not configured</span>
                     </div>
                   </div>
                   <div style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4, background: '#FFF1EB', border: '1px solid #FFD9CA', color: '#EA580C', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4 }}>

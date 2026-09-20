@@ -39,6 +39,12 @@ class AmendmentRequest(BaseModel):
     candidate_plan: str = Field(min_length=1, max_length=50_000)
 
 
+@router.get("/verification-runs")
+async def list_verification_runs(mongo: Annotated[MongoManager, Depends(get_mongo)]):
+    cursor = mongo.database().verification_runs.find({}).sort("created_at", -1).limit(100)
+    return [VerificationRun.model_validate(item) async for item in cursor]
+
+
 @router.post(
     "/verification-runs", response_model=VerificationRun, status_code=status.HTTP_202_ACCEPTED
 )
@@ -93,7 +99,14 @@ async def get_verification_run(run_id: str, mongo: Annotated[MongoManager, Depen
     )
     counts = {item["_id"]: item["count"] async for item in count_cursor}
     questions = [
-        {"id": item["id"], "status": item["status"], "obligation_id": item["obligation_id"]}
+        {
+            "id": item["id"],
+            "status": item["status"],
+            "obligation_id": item["obligation_id"],
+            "question": item["question"],
+            "why_needed": item["why_needed"],
+            "authority_required": item["authority_required"],
+        }
         async for item in database.human_questions.find({"run_id": run.id})
     ]
     tools = [
@@ -112,6 +125,32 @@ async def get_verification_run(run_id: str, mongo: Annotated[MongoManager, Depen
         "tool_runs": tools,
         "evidence_count": await database.evidence.count_documents({"snapshot_id": run.snapshot_id}),
     }
+
+
+@router.get("/verification-runs/{run_id}/proof-obligations")
+async def list_run_obligations(run_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]):
+    if not await RunRepository(mongo).get_run(run_id):
+        raise HTTPException(404, "verification run not found")
+    cursor = mongo.database().proof_obligations.find({"run_id": run_id}).sort("created_at", 1)
+    return [item async for item in cursor]
+
+
+@router.get("/verification-runs/{run_id}/evidence")
+async def list_run_evidence(run_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]):
+    run = await RunRepository(mongo).get_run(run_id)
+    if not run:
+        raise HTTPException(404, "verification run not found")
+    cursor = mongo.database().evidence.find({"snapshot_id": run.snapshot_id}).sort("created_at", 1)
+    return [item async for item in cursor]
+
+
+@router.get("/verification-runs/{run_id}/tool-runs")
+async def list_run_tool_runs(run_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]):
+    run = await RunRepository(mongo).get_run(run_id)
+    if not run:
+        raise HTTPException(404, "verification run not found")
+    cursor = mongo.database().tool_runs.find({"snapshot_id": run.snapshot_id}).sort("started_at", 1)
+    return [item async for item in cursor]
 
 
 @router.get("/verification-runs/{run_id}/events")

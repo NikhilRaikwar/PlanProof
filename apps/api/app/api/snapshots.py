@@ -50,6 +50,18 @@ async def create_snapshot(
     return result
 
 
+@router.get("/v1/projects/{project_id}/snapshots", response_model=list[RepositorySnapshot])
+async def list_project_snapshots(
+    project_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]
+) -> list[RepositorySnapshot]:
+    if not await ProjectsRepository(mongo).get(project_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
+    cursor = mongo.database().repository_snapshots.find({"project_id": project_id}).sort(
+        "created_at", -1
+    )
+    return [RepositorySnapshot.model_validate(item) async for item in cursor]
+
+
 @router.get("/v1/snapshots/{snapshot_id}", response_model=RepositorySnapshot)
 async def get_snapshot(
     snapshot_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]
