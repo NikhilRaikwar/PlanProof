@@ -82,12 +82,38 @@ async def create_verification_run(
     return run
 
 
-@router.get("/verification-runs/{run_id}", response_model=VerificationRun)
+@router.get("/verification-runs/{run_id}")
 async def get_verification_run(run_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]):
     run = await RunRepository(mongo).get_run(run_id)
     if not run:
         raise HTTPException(404, "verification run not found")
-    return run
+    database = mongo.database()
+    counts = {
+        item["_id"]: item["count"]
+        async for item in database.proof_obligations.aggregate(
+            [{"$match": {"run_id": run.id}}, {"$group": {"_id": "$status", "count": {"$sum": 1}}}]
+        )
+    }
+    questions = [
+        {"id": item["id"], "status": item["status"], "obligation_id": item["obligation_id"]}
+        async for item in database.human_questions.find({"run_id": run.id})
+    ]
+    tools = [
+        {
+            "id": item["id"],
+            "tool_name": item["tool_name"],
+            "status": item["status"],
+            "result_count": item["result_count"],
+        }
+        async for item in database.tool_runs.find({"snapshot_id": run.snapshot_id}).limit(50)
+    ]
+    return {
+        "run": run,
+        "obligation_counts": counts,
+        "human_questions": questions,
+        "tool_runs": tools,
+        "evidence_count": await database.evidence.count_documents({"snapshot_id": run.snapshot_id}),
+    }
 
 
 @router.get("/verification-runs/{run_id}/events")
