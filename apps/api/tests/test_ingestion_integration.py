@@ -44,7 +44,7 @@ async def test_seeded_fixture_uses_generic_pipeline_and_persists_index() -> None
         )
         records = RunRepository(mongo)
         await records.create_snapshot(snapshot)
-        await SnapshotIngestionService(records).ingest(snapshot.id, source)
+        snapshot = await SnapshotIngestionService(records).ingest(snapshot.id, source)
         reloaded = await records.get_snapshot(snapshot.id)
         assert (
             reloaded.status == "READY"
@@ -70,7 +70,7 @@ async def test_seeded_fixture_uses_generic_pipeline_and_persists_index() -> None
             },
         )
     finally:
-        if snapshot:
+        if snapshot and project and snapshot.project_id == project.id:
             await mongo.database().repository_files.delete_many({"snapshot_id": snapshot.id})
             await mongo.database().code_symbols.delete_many({"snapshot_id": snapshot.id})
             await mongo.database().repository_snapshots.delete_one({"id": snapshot.id})
@@ -183,7 +183,7 @@ async def test_public_github_repository_uses_generic_pipeline_without_credential
             index_version=INDEX_VERSION,
         )
         await records.create_snapshot(snapshot)
-        await SnapshotIngestionService(records).ingest(snapshot.id, source)
+        snapshot = await SnapshotIngestionService(records).ingest(snapshot.id, source)
         reloaded = await records.get_snapshot(snapshot.id)
         assert reloaded.status == "READY" and len(reloaded.resolved_commit_sha) == 40
         print(
@@ -199,7 +199,7 @@ async def test_public_github_repository_uses_generic_pipeline_without_credential
             },
         )
     finally:
-        if snapshot:
+        if snapshot and project and snapshot.project_id == project.id:
             for collection in (
                 mongo.database().repository_files,
                 mongo.database().code_symbols,

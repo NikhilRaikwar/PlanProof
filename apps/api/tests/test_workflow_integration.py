@@ -1,8 +1,10 @@
+import asyncio
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
+from app.api.workflow import HumanAnswerRequest, answer_human_question
 from app.core.config import Settings
 from app.db.indexes import ensure_indexes
 from app.db.mongo import MongoManager
@@ -27,6 +29,7 @@ from app.repositories.projects import ProjectsRepository
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
 from app.workflow.engine import VerificationWorkflow
+from app.workflow.worker import execute_verification_run
 
 
 @pytest.mark.integration
@@ -207,6 +210,114 @@ async def test_seeded_obligations_get_real_evidence_and_mixed_outcomes() -> None
         assert ObligationStatus.DISPROVED in statuses
         assert ObligationStatus.HUMAN_REQUIRED in statuses
         assert await mongo.database().evidence.count_documents({"snapshot_id": snapshot.id}) >= 3
+    finally:
+        db = mongo.database()
+        if run:
+            await db.events.delete_many({"run_id": run.id})
+            await db.human_questions.delete_many({"run_id": run.id})
+            await db.verification_runs.delete_one({"id": run.id})
+        if plan:
+            await db.proof_obligations.delete_many({"plan_version_id": plan.id})
+            await db.plan_versions.delete_one({"id": plan.id})
+        if snapshot:
+            await db.evidence.delete_many({"snapshot_id": snapshot.id})
+            await db.tool_runs.delete_many({"snapshot_id": snapshot.id})
+            await db.repository_files.delete_many({"snapshot_id": snapshot.id})
+            await db.code_symbols.delete_many({"snapshot_id": snapshot.id})
+            await db.repository_snapshots.delete_one({"id": snapshot.id})
+        if project:
+            await db.projects.delete_one({"id": project.id})
+        await mongo.close()
+
+
+@pytest.mark.integration
+async def test_queued_seeded_run_reaches_durable_human_wait(monkeypatch) -> None:
+    """Requires a real worker process; validates Redis delivery rather than in-process execution."""
+    settings = Settings()
+    if not settings.mongo_is_configured:
+        pytest.skip("MongoDB is required")
+    mongo = MongoManager(settings)
+    await mongo.connect()
+    project = snapshot = plan = run = None
+    try:
+        project = Project.from_create_request(
+            CreateProjectRequest(
+                name="queued",
+                owner_id=f"queued-{uuid4().hex}",
+                repository_source_type=RepositorySourceType.SEEDED,
+                fixture_id="partial-refunds-v1",
+            )
+        )
+        await ProjectsRepository(mongo).create(project)
+        runs = RunRepository(mongo)
+        source = seeded_fixture_source(
+            "partial-refunds-v1", Path(__file__).resolve().parents[3] / "demo-repos"
+        )
+        snapshot = RepositorySnapshot(
+            project_id=project.id,
+            repository_identity=source.identity,
+            parser_version=PARSER_VERSION,
+            index_version=INDEX_VERSION,
+        )
+        await runs.create_snapshot(snapshot)
+        snapshot = await SnapshotIngestionService(runs).ingest(snapshot.id, source)
+        plan = PlanVersion(
+            project_id=project.id,
+            version=1,
+            change_request="partial refunds",
+            candidate_plan="queued workflow",
+        )
+        await runs.create_plan_version(plan)
+        run = VerificationRun(
+            project_id=project.id,
+            snapshot_id=snapshot.id,
+            plan_version_id=plan.id,
+            status=VerificationRunStatus.QUEUED,
+        )
+        await runs.create_run(run)
+        verification = VerificationRepository(mongo)
+        for statement, category in [
+            ("Provider accepts a refund amount", ObligationCategory.BEHAVIOR),
+            ("Multiple refunds fit current schema", ObligationCategory.SCHEMA),
+            ("Mobile client impact is known", ObligationCategory.CROSS_SERVICE),
+        ]:
+            await verification.create_obligation(
+                ProofObligation(
+                    project_id=project.id,
+                    snapshot_id=snapshot.id,
+                    plan_version_id=plan.id,
+                    run_id=run.id,
+                    statement=statement,
+                    normalized_statement=statement.casefold(),
+                    category=category,
+                    criticality=Criticality.HIGH,
+                )
+            )
+        execute_verification_run.send(run.id)
+        execute_verification_run.send(run.id)
+        for _ in range(40):
+            await asyncio.sleep(0.25)
+            current = await runs.get_run(run.id)
+            if current.status == VerificationRunStatus.HUMAN_WAIT:
+                break
+        assert current.status == VerificationRunStatus.HUMAN_WAIT
+        assert await mongo.database().evidence.count_documents({"snapshot_id": snapshot.id}) == 2
+        question = await runs.get_question(current.open_human_question_ids[0])
+        await answer_human_question(
+            question.id,
+            HumanAnswerRequest(answer="Confirmed by product owner", actor_id="product-owner"),
+            mongo,
+        )
+        for _ in range(40):
+            await asyncio.sleep(0.25)
+            current = await runs.get_run(run.id)
+            if current.status == VerificationRunStatus.BLOCKED:
+                break
+        assert current.status == VerificationRunStatus.BLOCKED
+        assert await mongo.database().evidence.count_documents({"snapshot_id": snapshot.id}) == 2
+        events = await runs.list_events(run.id)
+        assert [event.sequence for event in events] == sorted({event.sequence for event in events})
+        assert {event.event_type for event in events} >= {"human_answered", "run_completed"}
     finally:
         db = mongo.database()
         if run:
