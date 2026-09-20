@@ -1,0 +1,39 @@
+openapi: 3.0.3
+info:
+  title: Payments Platform API
+  version: 1.0.0
+paths:
+  /payments/{payment_id}/refund:
+    post:
+      summary: Issue a refund
+      parameters:
+        - in: path
+          name: payment_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A successful refund
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefundResponse"
+components:
+  schemas:
+    RefundResponse:
+      type: object
+      required: [id, status, refunded_amount]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [refunded, pending]
+        refunded_amount:
+          type: string
+          format: decimal
+        refund_type:
+          type: string
+          description: Optional additive field; clients may continue using status.
+          enum: [full, partial]

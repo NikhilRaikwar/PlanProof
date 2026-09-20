@@ -1,0 +1,45 @@
+{
+  "case_id": "partial-refunds-v1",
+  "fixture_repository": "demo-repos/payments-platform",
+  "change_request": "Add partial refunds while keeping existing full-refund behavior and API compatibility.",
+  "candidate_plan": [
+    "Add an optional refund amount to PaymentService.refund().",
+    "Forward the amount to the payment provider.",
+    "Reuse the existing refunds table; no migration is needed.",
+    "Existing idempotency behavior works unchanged.",
+    "Billing and analytics are unaffected.",
+    "Preserve the existing public API response."
+  ],
+  "expected_obligations": [
+    {
+      "category": "BEHAVIOR",
+      "expected_status": "VERIFIED",
+      "required_path": "services/provider.py"
+    },
+    {
+      "category": "DATA",
+      "expected_status": "DISPROVED",
+      "required_path": "db/models/refund.ts"
+    },
+    {
+      "category": "COMPATIBILITY",
+      "expected_status": "DISPROVED",
+      "required_path": "api/idempotency.ts"
+    },
+    {
+      "category": "DEPENDENCY",
+      "expected_status": "DISPROVED",
+      "required_path": "billing/ledger.py"
+    },
+    {
+      "category": "API_CONTRACT",
+      "expected_status": "VERIFIED",
+      "required_path": "openapi/payments.yaml"
+    },
+    {
+      "category": "BUSINESS_RULE",
+      "expected_status": "HUMAN_REQUIRED",
+      "reason": "The mobile client repository is not connected."
+    }
+  ]
+}
