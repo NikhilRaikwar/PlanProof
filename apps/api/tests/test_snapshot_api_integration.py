@@ -64,6 +64,34 @@ def test_snapshot_http_contract_uses_persisted_fixture_state(monkeypatch) -> Non
         )
         assert plan.status_code == 200 and plan.json()["version"] == 1
         plan_id = plan.json()["id"]
+        amended = client.post(
+            f"/v1/plan-versions/{plan_id}/amendments",
+            json={"candidate_plan": "Use the refund amount and preserve audit history."},
+        )
+        assert amended.status_code == 200
+        assert amended.json()["parent_plan_version_id"] == plan_id
+        assert amended.json()["id"] != plan_id
+
+        queued = []
+        monkeypatch.setattr(
+            "app.api.workflow.execute_verification_run.send", lambda run_id: queued.append(run_id)
+        )
+        run_response = client.post(
+            "/v1/verification-runs",
+            headers={"Idempotency-Key": f"api-run-{owner_id}"},
+            json={"project_id": project_id, "snapshot_id": body["id"], "plan_version_id": plan_id},
+        )
+        assert run_response.status_code == 202 and run_response.json()["status"] == "QUEUED"
+        run_id = run_response.json()["id"]
+        duplicate = client.post(
+            "/v1/verification-runs",
+            headers={"Idempotency-Key": f"api-run-{owner_id}"},
+            json={"project_id": project_id, "snapshot_id": body["id"], "plan_version_id": plan_id},
+        )
+        assert duplicate.json()["id"] == run_id and queued == [run_id]
+        assert client.get(f"/v1/verification-runs/{run_id}").status_code == 200
+        events = client.get(f"/v1/verification-runs/{run_id}/events")
+        assert events.status_code == 200 and "run_created" in events.text
 
         async def model_complete(*_args, **_kwargs):
             return ModelResult(
@@ -131,6 +159,12 @@ def test_snapshot_http_contract_uses_persisted_fixture_state(monkeypatch) -> Non
             async for item in database.plan_versions.find({"project_id": {"$in": projects}})
         ]
         await database.proof_obligations.delete_many({"plan_version_id": {"$in": plan_ids}})
+        run_ids = [
+            item["id"]
+            async for item in database.verification_runs.find({"project_id": {"$in": projects}})
+        ]
+        await database.events.delete_many({"run_id": {"$in": run_ids}})
+        await database.verification_runs.delete_many({"id": {"$in": run_ids}})
         await database.plan_versions.delete_many({"project_id": {"$in": projects}})
         await database.projects.delete_many({"id": {"$in": projects}})
         await mongo.close()
