@@ -18,6 +18,10 @@ class VerificationRepository:
         await self.database.evidence.insert_one(item.model_dump(mode="python"))
         return item
 
+    async def get_evidence(self, item_id: str) -> Evidence | None:
+        item = await self.database.evidence.find_one({"id": item_id})
+        return Evidence.model_validate(item) if item else None
+
     async def create_model_call(self, item: ModelCall) -> ModelCall:
         await self.database.model_calls.insert_one(item.model_dump(mode="python"))
         return item
@@ -38,3 +42,15 @@ class VerificationRepository:
             }
         )
         return ProofObligation.model_validate(document)
+
+    async def get_obligation(self, item_id: str) -> ProofObligation | None:
+        item = await self.database.proof_obligations.find_one({"id": item_id})
+        return ProofObligation.model_validate(item) if item else None
+
+    async def list_obligations(self, plan_version_id: str) -> list[ProofObligation]:
+        return [
+            ProofObligation.model_validate(item)
+            async for item in self.database.proof_obligations.find(
+                {"plan_version_id": plan_version_id}
+            )
+        ]

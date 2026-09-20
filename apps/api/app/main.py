@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, projects, snapshots
+from app.api import health, projects, snapshots, verification
 from app.core.config import Settings, get_settings
 from app.db.mongo import MongoManager
 
@@ -41,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(projects.router)
     app.include_router(snapshots.router)
+    app.include_router(verification.router)
     return app
 
 
