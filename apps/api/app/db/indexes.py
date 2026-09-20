@@ -33,6 +33,11 @@ INDEXES: dict[str, list[IndexModel]] = {
     "verification_runs": [
         IndexModel([("project_id", ASCENDING), ("created_at", DESCENDING)]),
         IndexModel([("status", ASCENDING), ("updated_at", ASCENDING)]),
+        IndexModel(
+            [("idempotency_key", ASCENDING)],
+            unique=True,
+            partialFilterExpression={"idempotency_key": {"$type": "string"}},
+        ),
     ],
     "proof_obligations": [
         IndexModel([("run_id", ASCENDING), ("status", ASCENDING), ("criticality", ASCENDING)]),
@@ -49,7 +54,10 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("provider", ASCENDING), ("model", ASCENDING), ("created_at", DESCENDING)])
     ],
     "events": [IndexModel([("run_id", ASCENDING), ("sequence", ASCENDING)], unique=True)],
-    "human_questions": [IndexModel([("status", ASCENDING), ("updated_at", ASCENDING)])],
+    "human_questions": [
+        IndexModel([("status", ASCENDING), ("created_at", ASCENDING)]),
+        IndexModel([("run_id", ASCENDING), ("obligation_id", ASCENDING)], unique=True),
+    ],
 }
 
 

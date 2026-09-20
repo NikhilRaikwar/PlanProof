@@ -54,3 +54,14 @@ class VerificationRepository:
                 {"plan_version_id": plan_version_id}
             )
         ]
+
+    async def list_run_obligations(self, run_id: str) -> list[ProofObligation]:
+        return [
+            ProofObligation.model_validate(item)
+            async for item in self.database.proof_obligations.find({"run_id": run_id})
+        ]
+
+    async def update_obligation(self, item: ProofObligation) -> None:
+        await self.database.proof_obligations.update_one(
+            {"id": item.id}, {"$set": item.model_dump(mode="python")}
+        )

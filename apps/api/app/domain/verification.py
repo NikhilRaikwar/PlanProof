@@ -47,6 +47,11 @@ class Criticality(StrEnum):
 
 class ObligationStatus(StrEnum):
     PENDING = "PENDING"
+    VERIFYING = "VERIFYING"
+    VERIFIED = "VERIFIED"
+    DISPROVED = "DISPROVED"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    HUMAN_REQUIRED = "HUMAN_REQUIRED"
 
 
 class ToolRun(BaseModel):
@@ -82,6 +87,7 @@ class ProofObligation(BaseModel):
     project_id: str
     snapshot_id: str
     plan_version_id: str
+    run_id: str | None = None
     statement: str = Field(min_length=1, max_length=2000)
     normalized_statement: str
     category: ObligationCategory

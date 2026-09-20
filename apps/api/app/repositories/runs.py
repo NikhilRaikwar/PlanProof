@@ -4,7 +4,13 @@ from pymongo.errors import DuplicateKeyError
 
 from app.core.errors import DuplicateResourceError
 from app.db.mongo import MongoManager
-from app.domain.runs import PlanVersion, RepositorySnapshot, RunEvent, VerificationRun
+from app.domain.runs import (
+    HumanQuestion,
+    PlanVersion,
+    RepositorySnapshot,
+    RunEvent,
+    VerificationRun,
+)
 
 
 class RunRepository:
@@ -81,12 +87,41 @@ class RunRepository:
         return PlanVersion.model_validate(document) if document else None
 
     async def create_run(self, run: VerificationRun) -> VerificationRun:
-        await self._database.verification_runs.insert_one(run.model_dump(mode="python"))
+        try:
+            await self._database.verification_runs.insert_one(run.model_dump(mode="python"))
+        except DuplicateKeyError as exc:
+            raise DuplicateResourceError("verification run already exists") from exc
         return run
 
     async def get_run(self, run_id: str) -> VerificationRun | None:
         document = await self._database.verification_runs.find_one({"id": run_id})
         return VerificationRun.model_validate(document) if document else None
+
+    async def update_run(self, run: VerificationRun) -> None:
+        await self._database.verification_runs.update_one(
+            {"id": run.id}, {"$set": run.model_dump(mode="python")}
+        )
+
+    async def create_question(self, item: HumanQuestion) -> HumanQuestion:
+        await self._database.human_questions.insert_one(item.model_dump(mode="python"))
+        return item
+
+    async def get_question(self, item_id: str) -> HumanQuestion | None:
+        item = await self._database.human_questions.find_one({"id": item_id})
+        return HumanQuestion.model_validate(item) if item else None
+
+    async def update_question(self, item: HumanQuestion) -> None:
+        await self._database.human_questions.update_one(
+            {"id": item.id}, {"$set": item.model_dump(mode="python")}
+        )
+
+    async def list_events(self, run_id: str, after: int = 0) -> list[RunEvent]:
+        return [
+            RunEvent.model_validate(item)
+            async for item in self._database.events.find(
+                {"run_id": run_id, "sequence": {"$gt": after}}
+            ).sort("sequence", 1)
+        ]
 
     async def append_event(self, event: RunEvent) -> RunEvent:
         try:
