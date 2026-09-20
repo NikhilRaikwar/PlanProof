@@ -1,0 +1,31 @@
+import { expect, test } from '@playwright/test'
+
+test.describe.configure({ timeout: 120_000 })
+
+test('seeded fixture flows through the browser, Redis worker, human answer, and persisted blocked gate', async ({ page }) => {
+  await page.goto('/workspace/repositories')
+  await page.getByRole('button', { name: 'Add public repository' }).click()
+  await page.locator('select').selectOption('seeded_fixture')
+  await page.getByRole('button', { name: 'Create and index snapshot' }).click()
+  await expect(page.getByText('Demo fixture').first()).toBeVisible()
+  await expect(page.getByText('READY').first()).toBeVisible()
+
+  await page.goto('/workspace/new-verification')
+  const snapshotSelect = page.locator('select').first()
+  await expect(snapshotSelect.locator('option')).toHaveCount(await snapshotSelect.locator('option').count())
+  await snapshotSelect.selectOption({ index: 1 })
+  await page.getByPlaceholder('Describe the engineering change...').fill('Add safe partial refunds while preserving idempotency and reviewing mobile contract impact.')
+  await page.getByPlaceholder('Paste an engineering plan…').fill('Provider accepts a refund amount. Multiple refunds fit current schema. Mobile client impact is known.')
+  await page.getByRole('button', { name: 'Verify this plan' }).click()
+  await page.waitForURL(/\/workspace\/runs\//)
+  await expect(page.getByText(/Gate:/)).toBeVisible()
+  await expect(page.getByText('Human decision required')).toBeVisible({ timeout: 90_000 })
+  await page.getByPlaceholder('Record the authorized decision…').fill('Product owner confirms the mobile contract impact.')
+  await page.getByRole('button', { name: 'Submit decision' }).click()
+  await expect(page.getByText('Gate: BLOCKED')).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText('DISPROVED')).toBeVisible()
+  await expect(page.getByText(/db\/models\/refund\.ts/)).toBeVisible()
+  await page.goto('/workspace/tool-traces')
+  await page.locator('select').selectOption({ index: 1 })
+  await expect(page.getByText('search_code_lexical')).toBeVisible()
+})

@@ -24,6 +24,12 @@ from app.workflow.worker import execute_verification_run
 router = APIRouter(prefix="/v1", tags=["workflow"])
 
 
+def _safe_document(item: dict) -> dict:
+    """Mongo's internal ObjectId is not API data."""
+    item.pop("_id", None)
+    return item
+
+
 class CreateRunRequest(BaseModel):
     project_id: str
     snapshot_id: str
@@ -132,7 +138,7 @@ async def list_run_obligations(run_id: str, mongo: Annotated[MongoManager, Depen
     if not await RunRepository(mongo).get_run(run_id):
         raise HTTPException(404, "verification run not found")
     cursor = mongo.database().proof_obligations.find({"run_id": run_id}).sort("created_at", 1)
-    return [item async for item in cursor]
+    return [_safe_document(item) async for item in cursor]
 
 
 @router.get("/verification-runs/{run_id}/evidence")
@@ -141,7 +147,7 @@ async def list_run_evidence(run_id: str, mongo: Annotated[MongoManager, Depends(
     if not run:
         raise HTTPException(404, "verification run not found")
     cursor = mongo.database().evidence.find({"snapshot_id": run.snapshot_id}).sort("created_at", 1)
-    return [item async for item in cursor]
+    return [_safe_document(item) async for item in cursor]
 
 
 @router.get("/verification-runs/{run_id}/tool-runs")
@@ -150,7 +156,7 @@ async def list_run_tool_runs(run_id: str, mongo: Annotated[MongoManager, Depends
     if not run:
         raise HTTPException(404, "verification run not found")
     cursor = mongo.database().tool_runs.find({"snapshot_id": run.snapshot_id}).sort("started_at", 1)
-    return [item async for item in cursor]
+    return [_safe_document(item) async for item in cursor]
 
 
 @router.get("/verification-runs/{run_id}/events")
