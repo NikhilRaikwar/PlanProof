@@ -10,7 +10,14 @@ from app.repositories.verification import VerificationRepository
 from app.workflow.engine import VerificationWorkflow
 
 _settings = Settings()
-dramatiq.set_broker(RedisBroker(url=_settings.redis_url.get_secret_value()))
+# Development/test imports may not configure Redis because no job is executed.
+# Production Settings rejects that state before this module can be used.
+_broker_url = (
+    _settings.redis_url.get_secret_value()
+    if _settings.redis_is_configured
+    else "redis://127.0.0.1:6379/0"
+)
+dramatiq.set_broker(RedisBroker(url=_broker_url))
 
 
 @dramatiq.actor(max_retries=3, min_backoff=1000)

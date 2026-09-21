@@ -3,6 +3,7 @@
 **/.venv/
 **/__pycache__/
 **/.pytest_cache/
+.uv-cache/
 *.py[cod]
 /.pnp
 .pnp.js

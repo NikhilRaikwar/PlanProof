@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -13,7 +14,12 @@ from app.repositories.projects import ProjectsRepository
 from app.repositories.runs import RunRepository
 
 router = APIRouter(tags=["snapshots"])
-_FIXTURES_ROOT = Path(__file__).resolve().parents[4] / "demo-repos"
+_configured_fixtures_root = os.environ.get("PLANPROOF_FIXTURES_ROOT")
+_FIXTURES_ROOT = (
+    Path(_configured_fixtures_root)
+    if _configured_fixtures_root
+    else Path(__file__).resolve().parents[4] / "demo-repos"
+)
 
 
 @router.post(

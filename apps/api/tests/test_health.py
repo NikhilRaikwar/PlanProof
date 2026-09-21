@@ -10,7 +10,7 @@ def test_liveness_is_available_without_database_configuration() -> None:
         response = client.get("/health/live")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "mongo": None}
+    assert response.json() == {"status": "ok", "mongo": None, "redis": None}
 
 
 def test_readiness_fails_closed_without_database_configuration() -> None:
@@ -19,7 +19,7 @@ def test_readiness_fails_closed_without_database_configuration() -> None:
         response = client.get("/health/ready")
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "database is not configured"
+    assert response.json()["detail"] == "required dependency is not configured"
 
 
 def test_liveness_survives_unreachable_database_while_readiness_fails_closed() -> None:
@@ -34,4 +34,4 @@ def test_liveness_survives_unreachable_database_while_readiness_fails_closed() -
         response = client.get("/health/ready")
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "database is unavailable"
+    assert response.json()["detail"] == "required dependency is unavailable"
