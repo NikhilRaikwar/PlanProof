@@ -28,7 +28,7 @@ test('repositories use empty and seeded API states without fixture fallback', as
   await page.unroute('**/v1/workspace/projects')
   await mockApi(page)
   await page.reload()
-  await expect(page.getByText('Demo fixture')).toBeVisible()
+  await expect(page.getByText('Demo fixture', { exact: true })).toBeVisible()
   await expect(page.getByText('READY', { exact: true }).first()).toBeVisible()
 })
 

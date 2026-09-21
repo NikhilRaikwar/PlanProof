@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # A live run report makes bounded persisted-projection reads while SSE
     # reconnects.  Sixty requests/minute denies one normal browser session;
     # 300 still provides a finite unauthenticated abuse boundary.
-    rate_limit_requests: int = Field(default=300, ge=1, le=10_000)
+    rate_limit_requests: int = Field(default=1200, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
 
     openrouter_api_key: SecretStr | None = None
@@ -66,6 +66,13 @@ class Settings(BaseSettings):
             if self.redis_url is None:
                 raise ValueError("REDIS_URL is required in production")
         return self
+
+    @field_validator("github_app_id", "github_app_slug", mode="before")
+    @classmethod
+    def strip_github_app_fields(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
     @field_validator("planproof_web_origins")
     @classmethod

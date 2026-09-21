@@ -46,10 +46,8 @@ export default function RepositoriesPage() {
         api.githubRepositories().catch(() => [])
       ])
 
-      // Exclude internal e2e test records from user display
-      const normalProjects = projects.filter(p => !p.name.startsWith('e2e-'))
       const rows = await Promise.all(
-        normalProjects.map(async project => {
+        projects.map(async project => {
           try {
             const snaps = await api.snapshots(project.id)
             return { project, snapshot: snaps[0] }
@@ -168,6 +166,17 @@ export default function RepositoriesPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button 
+            type="button" 
+            className="btn-secondary-light"
+            data-testid="index-demo-fixture"
+            disabled={creatingDemo || loading}
+            onClick={() => void handleCreateDemoSnapshot()}
+          >
+            <Sparkles size={13} className={creatingDemo ? 'animate-spin' : ''} />
+            <span>{creatingDemo ? 'Indexing demo…' : 'Index demo fixture'}</span>
+          </button>
+
           <button 
             type="button" 
             className="btn-secondary-light"

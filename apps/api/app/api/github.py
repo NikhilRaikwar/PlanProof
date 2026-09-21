@@ -215,7 +215,7 @@ async def connect_github(
         _sign(nonce, settings),
         httponly=True,
         secure=settings.session_cookie_secure,
-        samesite="lax",
+        samesite="none" if settings.session_cookie_secure else "lax",
         max_age=600,
         path="/v1/auth/github",
     )
@@ -271,6 +271,7 @@ async def github_callback(
             "expires_at": now + timedelta(days=7),
         }
     )
+    cookie_samesite = "none" if settings.session_cookie_secure else "lax"
     response = RedirectResponse(
         f"{settings.web_origins[0]}/workspace", status_code=status.HTTP_303_SEE_OTHER
     )
@@ -279,7 +280,7 @@ async def github_callback(
         _sign(token, settings),
         httponly=True,
         secure=settings.session_cookie_secure,
-        samesite="lax",
+        samesite=cookie_samesite,
         max_age=7 * 24 * 60 * 60,
         path="/",
     )

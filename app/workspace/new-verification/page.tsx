@@ -37,11 +37,10 @@ export default function NewVerificationPage() {
     void (async () => {
       try {
         const ps = await api.workspaceProjects().catch(() => api.projects().catch(() => []))
-        const normalProjects = ps.filter(p => !p.name.startsWith('e2e-'))
         const pairs: SnapshotRow[] = []
 
         await Promise.all(
-          normalProjects.map(async project => {
+          ps.map(async project => {
             try {
               const snaps = await api.snapshots(project.id)
               snaps.forEach(snap => {

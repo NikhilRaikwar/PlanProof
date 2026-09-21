@@ -5,6 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8080
 
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+
 COPY apps/api/pyproject.toml apps/api/uv.lock apps/api/README.md ./
 RUN pip install --no-cache-dir --upgrade pip uv && uv sync --frozen --no-dev
 COPY apps/api/app ./app
