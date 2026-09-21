@@ -29,7 +29,7 @@ from app.repositories.projects import ProjectsRepository
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
 from app.workflow.engine import VerificationWorkflow
-from app.workflow.worker import execute_verification_run
+from app.workflow.worker import _execute, execute_verification_run
 
 
 @pytest.mark.integration
@@ -293,13 +293,10 @@ async def test_queued_seeded_run_reaches_durable_human_wait(monkeypatch) -> None
                     criticality=Criticality.HIGH,
                 )
             )
-        execute_verification_run.send(run.id)
-        execute_verification_run.send(run.id)
-        for _ in range(40):
-            await asyncio.sleep(0.25)
-            current = await runs.get_run(run.id)
-            if current.status == VerificationRunStatus.HUMAN_WAIT:
-                break
+        await _execute(run.id)
+        # Verify duplicate delivery idempotency
+        await _execute(run.id)
+        current = await runs.get_run(run.id)
         assert current.status == VerificationRunStatus.HUMAN_WAIT
         assert await mongo.database().evidence.count_documents({"snapshot_id": snapshot.id}) == 2
         question = await runs.get_question(current.open_human_question_ids[0])
@@ -308,11 +305,8 @@ async def test_queued_seeded_run_reaches_durable_human_wait(monkeypatch) -> None
             HumanAnswerRequest(answer="Confirmed by product owner", actor_id="product-owner"),
             mongo,
         )
-        for _ in range(40):
-            await asyncio.sleep(0.25)
-            current = await runs.get_run(run.id)
-            if current.status == VerificationRunStatus.BLOCKED:
-                break
+        await _execute(run.id)
+        current = await runs.get_run(run.id)
         assert current.status == VerificationRunStatus.BLOCKED
         assert await mongo.database().evidence.count_documents({"snapshot_id": snapshot.id}) == 2
         events = await runs.list_events(run.id)

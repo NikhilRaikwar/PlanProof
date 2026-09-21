@@ -437,7 +437,7 @@ export default function RepositoriesPage() {
                       <strong style={{ fontSize: 14, color: '#0F172A' }}>{project.name}</strong>
                       {isDemo && (
                         <span style={{ fontSize: 10, fontWeight: 750, background: '#FEF3C7', color: '#D97706', padding: '2px 6px', borderRadius: 4 }}>
-                          DEMO FIXTURE
+                          Demo fixture
                         </span>
                       )}
                     </div>

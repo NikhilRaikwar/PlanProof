@@ -6,96 +6,150 @@ PlanProof is pre-flight verification infrastructure for AI-generated engineering
 
 The core rule is simple: **the model proposes; deterministic code authorizes.**
 
-## What is implemented
+---
 
-- Public GitHub repository ingestion without GitHub tokens for P0, plus an explicitly labelled seeded demo fixture.
-- Immutable repository snapshots, deterministic file hashes, source symbol indexing, and bounded snapshot-scoped tools.
-- Evidence that is server-issued and provenance-bound to a successful deterministic tool run.
-- Provider-neutral structured model gateway: OpenRouter primary, AIMLAPI availability fallback, bounded retries, and safe model-call metadata.
-- LangGraph-based bounded verification workflow with Redis/Dramatiq execution, MongoDB persistence, deterministic final gates, and human pause/resume.
-- API-backed Next.js workspace, live safe event display, evidence/tool trace inspection, human decision submission, and immutable plan amendments.
-- Versioned evaluation fixtures, explicit regression-policy helpers, security tests, container definitions, and CI checks.
+## Key Capabilities
 
-## Deliberate engineering choices
+- **GitHub App & Private/Public Repository Ingestion**:
+  - Secure GitHub App connection (`PlanProof Verification`, App ID: `5023064`) with least-privilege permissions (**Repository Contents: Read-only**, **Metadata: Read-only**).
+  - Queries granted repositories, branch refs, and resolves branch HEAD to exact immutable commit SHAs.
+  - Fallback support for public HTTPS GitHub repositories and explicitly labelled deterministic demo fixtures.
+- **Immutable Codebase Snapshots & AST Symbol Indexing**:
+  - SHA-bound snapshots, cryptographic content hashes, symbol extraction (classes, functions, types, imports), and bounded snapshot-scoped tools.
+- **Server-Issued Evidence Authority**:
+  - Evidence is issued exclusively by backend code from successful deterministic tool runs, binding snapshot identity, tool run ID, relative path/range, and content hash provenance.
+  - Rejects model-invented evidence, cross-snapshot pollution, stale hashes, or invalid ranges.
+- **Server-Managed Model Gateway**:
+  - Provider-neutral gateway with OpenRouter primary and AIMLAPI fallback managed entirely on the server.
+  - User model keys are never requested or exposed client-side.
+- **Durable Asynchronous Verification Engine**:
+  - Single-orchestrator LangGraph state machine executed via Redis/Dramatiq workers and persisted to MongoDB Atlas.
+  - Enforces strict budgets (max iterations, tool calls, model calls, context byte limits).
+  - Deterministic final gates: `VERIFIED_FOR_EXECUTION`, `BLOCKED`, `HUMAN_DECISION_REQUIRED`, `INCONCLUSIVE`, or `FAILED`.
+- **Human-in-the-Loop (HITL) Authority Boundary**:
+  - Emits `HUMAN_REQUIRED` when repository code lacks authority (e.g. cross-service client contracts, operational business policies).
+  - Persists questions, accepts human decisions, and resumes the workflow without erasing unrelated counter-evidence.
+- **Live Next.js 16 Workspace Dashboard**:
+  - Real GitHub user session display (`@username`), snapshot readiness cards, granted repository listings, branch selector, recent runs, and interactive decision banners.
+- **Versioned Evaluation Suite**:
+  - 27 versioned evaluation cases in `evals/cases/v1` with explicit regression gating (`PASS`, `REGRESSION`, `INSUFFICIENT_DATA`).
 
-PlanProof is not a coding agent, generic repository chatbot, or multi-agent swarm. A single explicit state machine is more auditable here: known facts are checked by deterministic validators before any model call, and adding agents would increase cost, coordination failures, and observability complexity without justified capability.
+---
 
-It also intentionally does not use vector RAG, arbitrary code execution, unbounded reflection loops, model confidence as authority, private GitHub support, or a complete semantic call graph in the current release. These are tradeoffs, not hidden gaps: a bounded lexical/symbol index is safer and more explainable for the supported P0 workflow.
+## Deliberate Engineering Decisions
+
+### Why a Single Orchestrator (Not a Multi-Agent Swarm)?
+PlanProof uses a single durable LangGraph state machine rather than an unconstrained multi-agent swarm:
+1. **Causal Traceability**: Every obligation transition, tool run, and evidence item is sequentially traceable to a single execution graph.
+2. **Coordination Overhead**: Multi-agent swarms introduce compounding token costs, nondeterministic consensus loops, and unexplainable failure modes.
+3. **Deterministic Authority**: In verification, known facts are resolved by deterministic AST tools and validators before any model is invoked.
+
+### Why AST / Symbol Indexing (Not Premature Vector RAG)?
+1. **Exact Codebase Truth**: Code verification requires exact symbol definitions, type signatures, and file line ranges. Vector similarity search frequently retrieves false-positive matches that lack structural authority.
+2. **Deterministic Provenance**: Evidence hashes must be cryptographically verifiable against exact lines in immutable commit snapshots.
+3. *Note*: Semantic embeddings remain an optional future extension if controlled evaluations demonstrate retrieval recall gaps.
+
+---
 
 ## Architecture
 
 ```text
-Next.js workspace
-  -> FastAPI /v1
-  -> MongoDB Atlas (projects, snapshots, plans, runs, evidence, audit)
-  -> Redis + Dramatiq (durable verification jobs)
-  -> LangGraph bounded orchestrator
-  -> deterministic repository tools + validators
-  -> OpenRouter primary / AIMLAPI fallback for structured proposals only
+Next.js 16 Workspace UI (App Router)
+  └──> FastAPI Backend (/v1)
+        ├──> GitHub App Auth (RS256 JWT, installation tokens, branch SHA resolution)
+        ├──> MongoDB Atlas (14 collections: projects, snapshots, runs, evidence, symbols, etc.)
+        ├──> Redis + Dramatiq Worker Pool (Asynchronous verification jobs)
+        └──> LangGraph Verification Engine
+              ├──> Deterministic AST Validators & Symbol Tools
+              ├──> Server-Issued Evidence Authority
+              ├──> Server-Side Model Gateway (OpenRouter -> AIMLAPI fallback)
+              └──> Deterministic Gate Policy + Human-in-the-Loop Resumption
 ```
 
-Repository facts never come from an LLM. Models can extract ambiguous candidate-plan claims or propose one allowlisted next action; they cannot create evidence IDs, read the host filesystem, execute shell commands, mutate MongoDB, or set final verification status.
+---
 
-See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md), and [evaluation design](docs/EVALUATIONS.md).
+## Repository Structure
 
-## Product flow
+```text
+├── app/                  # Next.js 16 App Router (Landing, /workspace, /runs, /evidence)
+├── apps/api/             # FastAPI Backend Service
+│   ├── app/api/          # API Routers (github, projects, snapshots, verification, workflow, evals)
+│   ├── app/core/         # Settings & Runtime Configuration
+│   ├── app/db/           # MongoDB Atlas & Redis Managers, Collection Indexes
+│   ├── app/domain/       # Pydantic Domain Entities (Runs, Obligations, Evidence, Projects)
+│   ├── app/ingestion/    # Codebase Ingestion, AST Parsers, Symbol Extractors
+│   ├── app/workflow/     # LangGraph Verification Graph, Dramatiq Worker Tasks
+│   └── tests/            # 59 Comprehensive Backend Tests (Unit + Integration)
+├── components/           # Polished Cream/Light Design System Components
+├── evals/                # 27 Versioned Evaluation Cases (evals/cases/v1)
+├── docs/                 # Architecture, Security, Evaluations, GCP Deployment, Demo Script
+└── tests/                # Playwright End-to-End & UI Verification Suites
+```
 
-1. Add a public GitHub HTTPS repository or select the labelled demo fixture.
-2. Index an immutable READY snapshot.
-3. Submit a change request and candidate engineering plan.
-4. Create an immutable plan version and queue a verification run.
-5. Resolve proof obligations with bounded tools, authoritative evidence, policy, and human authority where code cannot decide.
-6. Receive a deterministic gate: `VERIFIED_FOR_EXECUTION`, `BLOCKED`, `HUMAN_DECISION_REQUIRED`, `INCONCLUSIVE`, or `FAILED`.
+---
 
-## Local development
+## Local Development & Testing
 
-Prerequisites: Node 22+, Python 3.11–3.13, Docker (for local Redis), and a local ignored `.env` populated from `.env.example`. Never commit `.env`.
+### Prerequisites
+- Node.js 22+, Python 3.11–3.13, Docker (for local Redis), Git.
+- Local `.env` configured from `.env.example`.
+
+### Running Locally
 
 ```bash
-docker compose up redis
+# 1. Start Redis
+docker compose up -d redis
+
+# 2. Run Backend API
 cd apps/api
 uv sync --all-groups
 uv run uvicorn app.main:app --reload --port 8000
+
+# 3. Run Worker (in separate terminal)
+cd apps/api
+uv run dramatiq app.workflow.worker
+
+# 4. Run Frontend (in separate terminal)
+npm ci
+npm run dev
 ```
 
-In another terminal, run `cd apps/api && uv run dramatiq app.workflow.worker`. For the UI, run `npm ci` then `npm run dev`.
-
-Local quality checks:
+### Running Test Suites
 
 ```bash
-npm run typecheck
-npm run build
-npm run test:ui
-cd apps/api && uv run ruff check app tests && uv run pytest -q
+# Frontend quality checks
+npm run secret:scan      # Scan tracked files for leaked credentials
+npm run typecheck        # TypeScript strict verification
+npm run build            # Next.js 16 production build verification
+npm run test:ui          # Playwright UI & state isolation tests
+
+# Backend test suite (48 unit + 11 Atlas/Redis integration)
+cd apps/api
+uv run ruff check app tests
+uv run pytest -q
+
+# Evaluation harness & regression checks
+uv run pytest tests/test_evaluation_harness.py -q
 ```
 
-Network/paid provider and Atlas checks are deliberately marked separately from deterministic tests.
+---
 
-## Evaluation harness
+## Production Deployment
 
-The `evals/cases/v1` set contains versioned test-only metadata spanning schema, idempotency, API, dependency, human-authority, provider-failure, prompt-injection, evidence-provenance, worker-retry, and budget-safety scenarios. Evaluation expectations never enter production workflow code.
+PlanProof is deployed on **Google Cloud Platform (GCP)** in `asia-south1` under project `planproof-ai`:
+- **Web UI**: Cloud Run service `planproof-web`
+- **Authoritative API**: Cloud Run service `planproof-api`
+- **Database**: MongoDB Atlas (`planproofapp`)
+- **Queue/Cache**: Cloud Redis / Memorystore
+- **Secrets**: GCP Secret Manager (Zero secrets in client bundles or git repository)
 
-Metrics are produced only from observed evaluator outputs; when a metric cannot be substantiated, it is omitted rather than invented. A regression comparison accepts explicit caller-provided thresholds and can return `PASS`, `REGRESSION`, or `INSUFFICIENT_DATA`.
+See [docs/DEPLOYMENT_GCP.md](docs/DEPLOYMENT_GCP.md) and [docs/production-readiness.md](docs/production-readiness.md) for runbooks and validation results.
 
-## Deployment
+---
 
-The production target is Google Cloud Run (Next.js UI and FastAPI), Cloud Run Worker Pools (Dramatiq), Artifact Registry, Secret Manager, Memorystore Redis, and MongoDB Atlas in `asia-south1` under `planproof-ai`.
+## Security & Compliance
 
-Deployment definitions and a runbook are in [docs/DEPLOYMENT_GCP.md](docs/DEPLOYMENT_GCP.md). The runbook keeps mutable deployment URLs out of source control; a production deployment is usable only after its live and dependency readiness checks succeed.
-
-## Honest limitations
-
-- Public GitHub HTTPS repositories only; no OAuth, GitHub App, or private repository access.
-- Python parsing is AST-backed for the supported subset. TypeScript/JavaScript extraction is lightweight and does not provide complete type resolution, call graphs, or semantic references.
-- Deterministic reference/dependency results are explicitly partial where the index is partial.
-- The project has deployment templates and production safeguards, but deployment status must be verified against the target cloud account.
-
-## Review path
-
-- [API and workflow implementation](apps/api/app)
-- [Versioned evaluation cases](evals/cases/v1)
-- [Security controls and threat boundaries](docs/SECURITY.md)
-- [GCP deployment runbook](docs/DEPLOYMENT_GCP.md)
-- [Five-minute product demonstration](docs/DEMO.md)
-
-MIT. Copyright © 2026 Nikhil Raikwar.
+- **No Secret Transmission**: All LLM provider keys and GitHub private keys are stored securely server-side.
+- **Least Privilege**: GitHub App requests strictly read-only repository contents.
+- **Strict Boundary Isolation**: Test/E2E records are scoped and isolated from normal user workspaces.
+- **Automated Secret Scanning**: Pre-commit / CI script (`scripts/secret-scan.mjs`) ensures no credentials enter version control.

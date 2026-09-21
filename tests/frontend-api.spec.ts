@@ -29,7 +29,7 @@ test('repositories use empty and seeded API states without fixture fallback', as
   await mockApi(page)
   await page.reload()
   await expect(page.getByText('Demo fixture')).toBeVisible()
-  await expect(page.getByText('READY')).toBeVisible()
+  await expect(page.getByText('READY', { exact: true }).first()).toBeVisible()
 })
 
 test('runs, gate report, evidence, and trace are rendered from server records', async ({ page }) => {
@@ -66,8 +66,8 @@ test('workspace dashboard renders real data and session account', async ({ page 
   await mockApi(page)
   await page.goto('/workspace')
   await expect(page.getByText('Verification Dashboard')).toBeVisible()
-  await expect(page.getByText('@test-user')).toBeVisible()
-  await expect(page.getByText('Partial Refund Demo')).toBeVisible()
+  await expect(page.getByRole('main').getByText('@test-user')).toBeVisible()
+  await expect(page.getByText('Partial Refund Demo').first()).toBeVisible()
 })
 
 test('landing page shows Connect GitHub when disconnected and Open workspace when connected', async ({ page }) => {

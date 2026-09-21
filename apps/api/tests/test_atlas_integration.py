@@ -96,8 +96,12 @@ async def test_atlas_persists_and_reloads_phase_one_records() -> None:
         assert (await restarted_records.get_event(run.id, 1)).summary == event.summary
 
         index_cursor = await restarted_mongo.database().repository_snapshots.list_indexes()
-        index_names = {index["name"] async for index in index_cursor}
-        assert any("resolved_commit_sha" in index_name for index_name in index_names)
+        indexes = [index async for index in index_cursor]
+        assert any(
+            "resolved_commit_sha" in index.get("key", {})
+            or "resolved_commit_sha" in index.get("name", "")
+            for index in indexes
+        )
     finally:
         cleanup_database = restarted_mongo.database() if restarted_mongo is not None else database
         if run is not None:
