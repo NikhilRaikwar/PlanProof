@@ -31,10 +31,11 @@ class RunRepository:
         return RepositorySnapshot.model_validate(document) if document else None
 
     async def get_ready_snapshot(
-        self, identity: str, sha: str, parser: str, index: str
+        self, project_id: str, identity: str, sha: str, parser: str, index: str
     ) -> RepositorySnapshot | None:
         document = await self._database.repository_snapshots.find_one(
             {
+                "project_id": project_id,
                 "repository_identity": identity,
                 "resolved_commit_sha": sha,
                 "parser_version": parser,

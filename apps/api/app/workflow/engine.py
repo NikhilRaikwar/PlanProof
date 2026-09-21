@@ -78,7 +78,17 @@ class VerificationWorkflow:
             )
         run.status = VerificationRunStatus.VERIFYING
         await self.runs.update_run(run)
-        for obligation in obligations:
+        # Establish code-backed facts before pausing for product/operational
+        # authority.  A cross-service/business question must not prevent the
+        # same immutable run from discovering direct repository contradictions.
+        # This ordering is deterministic and deliberately independent of the
+        # model's proposal order.
+        ordered_obligations = sorted(
+            obligations,
+            key=lambda item: item.category
+            in {ObligationCategory.BUSINESS_RULE, ObligationCategory.CROSS_SERVICE},
+        )
+        for obligation in ordered_obligations:
             if obligation.status != ObligationStatus.PENDING:
                 continue
             run.iteration_count += 1

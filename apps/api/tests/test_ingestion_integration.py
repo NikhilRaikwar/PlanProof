@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.config import Settings
+from app.db.indexes import ensure_indexes
 from app.db.mongo import MongoManager
 from app.domain.projects import CreateProjectRequest, Project, RepositorySourceType
 from app.domain.runs import RepositorySnapshot
@@ -23,6 +24,7 @@ async def test_seeded_fixture_uses_generic_pipeline_and_persists_index() -> None
     project = None
     snapshot = None
     try:
+        await ensure_indexes(mongo.database())
         project = Project.from_create_request(
             CreateProjectRequest(
                 name="fixture",
@@ -96,6 +98,7 @@ async def test_ready_snapshot_is_reused_after_new_mongo_client() -> None:
     await mongo.connect()
     project = first = second = None
     try:
+        await ensure_indexes(mongo.database())
         project = Project.from_create_request(
             CreateProjectRequest(
                 name="idempotency", owner_id=f"itest-{uuid4().hex}",
@@ -151,6 +154,73 @@ async def test_ready_snapshot_is_reused_after_new_mongo_client() -> None:
             )
         if project:
             await mongo.database().projects.delete_one({"id": project.id})
+        await mongo.close()
+
+
+@pytest.mark.integration
+async def test_same_immutable_source_is_scoped_to_each_project() -> None:
+    """A demo/public source may be added by more than one project safely."""
+    settings = Settings()
+    if not settings.mongo_is_configured:
+        pytest.skip("MONGODB_URI is not configured")
+    source = seeded_fixture_source(
+        "partial-refunds-v1", Path(__file__).resolve().parents[3] / "demo-repos"
+    )
+    mongo = MongoManager(settings)
+    await mongo.connect()
+    first_project = second_project = first_snapshot = second_snapshot = None
+    try:
+        await ensure_indexes(mongo.database())
+        projects = ProjectsRepository(mongo)
+        records = RunRepository(mongo)
+        first_project = Project.from_create_request(
+            CreateProjectRequest(
+                name="first",
+                owner_id=f"itest-{uuid4().hex}",
+                repository_source_type=RepositorySourceType.SEEDED,
+                fixture_id="partial-refunds-v1",
+            )
+        )
+        second_project = Project.from_create_request(
+            CreateProjectRequest(
+                name="second",
+                owner_id=f"itest-{uuid4().hex}",
+                repository_source_type=RepositorySourceType.SEEDED,
+                fixture_id="partial-refunds-v1",
+            )
+        )
+        await projects.create(first_project)
+        await projects.create(second_project)
+        first_snapshot = RepositorySnapshot(
+            project_id=first_project.id,
+            repository_identity=source.identity,
+            requested_ref=source.requested_ref,
+            parser_version=PARSER_VERSION,
+            index_version=INDEX_VERSION,
+        )
+        second_snapshot = RepositorySnapshot(
+            project_id=second_project.id,
+            repository_identity=source.identity,
+            requested_ref=source.requested_ref,
+            parser_version=PARSER_VERSION,
+            index_version=INDEX_VERSION,
+        )
+        await records.create_snapshot(first_snapshot)
+        first_snapshot = await SnapshotIngestionService(records).ingest(first_snapshot.id, source)
+        await records.create_snapshot(second_snapshot)
+        second_snapshot = await SnapshotIngestionService(records).ingest(second_snapshot.id, source)
+        assert first_snapshot.status == second_snapshot.status == "READY"
+        assert first_snapshot.id != second_snapshot.id
+        assert second_snapshot.project_id == second_project.id
+    finally:
+        for snapshot in (first_snapshot, second_snapshot):
+            if snapshot:
+                await mongo.database().repository_files.delete_many({"snapshot_id": snapshot.id})
+                await mongo.database().code_symbols.delete_many({"snapshot_id": snapshot.id})
+                await mongo.database().repository_snapshots.delete_one({"id": snapshot.id})
+        for project in (first_project, second_project):
+            if project:
+                await mongo.database().projects.delete_one({"id": project.id})
         await mongo.close()
 
 

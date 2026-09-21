@@ -42,14 +42,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.mongo = mongo
     app.state.redis = redis
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=runtime_settings.web_origins,
-        allow_credentials=False,
-        allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type", "Idempotency-Key"],
-    )
-
     @app.middleware("http")
     async def production_boundaries(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID", str(uuid4()))[:128]
@@ -62,7 +54,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if oversized:
                 return JSONResponse({"detail": "request payload is too large"}, status_code=413)
         if request.url.path not in {"/health/live", "/health/ready"}:
-            client = request.client.host if request.client else "unknown"
+            # Cloud Run receives requests through Google frontends.  Limiting by
+            # ``request.client`` alone collapses every browser behind a shared
+            # proxy address into one bucket, which can deny unrelated users.
+            # X-Forwarded-For is used only as an abuse-control key (never for
+            # authentication/authorization); Cloud Run appends the client chain.
+            forwarded_for = request.headers.get("x-forwarded-for", "")
+            client = forwarded_for.split(",", 1)[0].strip() or (
+                request.client.host if request.client else "unknown"
+            )
             try:
                 allowed = await request.app.state.redis.consume_rate_limit(
                     client,
@@ -88,6 +88,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request_id,
         )
         return response
+
+    # Register CORS after the boundary middleware.  Starlette wraps middleware
+    # in reverse registration order, so this keeps CORS outermost and ensures
+    # browsers can read truthful 4xx/5xx boundary responses such as 429.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=runtime_settings.web_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "Idempotency-Key"],
+    )
 
     configure_observability(runtime_settings, app)
     app.include_router(health.router)

@@ -2,17 +2,14 @@ from __future__ import annotations
 
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import OperationFailure
 
 INDEXES: dict[str, list[IndexModel]] = {
     "projects": [IndexModel([("owner_id", ASCENDING), ("created_at", DESCENDING)])],
     "repository_snapshots": [
         IndexModel(
-            [("project_id", ASCENDING), ("resolved_commit_sha", ASCENDING)],
-            unique=True,
-            partialFilterExpression={"resolved_commit_sha": {"$type": "string"}},
-        ),
-        IndexModel(
             [
+                ("project_id", ASCENDING),
                 ("repository_identity", ASCENDING),
                 ("resolved_commit_sha", ASCENDING),
                 ("parser_version", ASCENDING),
@@ -20,6 +17,7 @@ INDEXES: dict[str, list[IndexModel]] = {
             ],
             unique=True,
             partialFilterExpression={"resolved_commit_sha": {"$type": "string"}},
+            name="snapshot_project_immutable_identity",
         ),
     ],
     "repository_files": [
@@ -67,6 +65,20 @@ INDEXES: dict[str, list[IndexModel]] = {
 
 async def ensure_indexes(database: AsyncDatabase) -> None:
     """Create operational indexes safely and idempotently at service startup/deploy time."""
+
+    # Early Phase 2 created global snapshot identity indexes.  Snapshots are
+    # project-owned records, so that shape caused a second user adding the same
+    # public repository/demo fixture to receive another project's snapshot.
+    # Retire the legacy indexes before creating the project-scoped identity.
+    for legacy in (
+        "project_id_1_resolved_commit_sha_1",
+        "repository_identity_1_resolved_commit_sha_1_parser_version_1_index_version_1",
+    ):
+        try:
+            await database.repository_snapshots.drop_index(legacy)
+        except OperationFailure as exc:
+            if exc.code != 27:  # IndexNotFound is expected on fresh databases.
+                raise
 
     for collection, indexes in INDEXES.items():
         await database.get_collection(collection).create_indexes(indexes)

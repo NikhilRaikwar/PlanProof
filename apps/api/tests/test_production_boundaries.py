@@ -52,6 +52,19 @@ def test_rate_limit_fails_closed_without_exposing_client_data() -> None:
     assert response.json() == {"detail": "rate limit exceeded"}
 
 
+def test_boundary_errors_keep_cors_and_use_forwarded_client_bucket() -> None:
+    app = _app(Settings(mongodb_uri=None, planproof_web_origins="https://web.example"))
+    app.state.redis = DenyingRedis()
+    with TestClient(app) as client:
+        response = client.get(
+            "/probe",
+            headers={"Origin": "https://web.example", "X-Forwarded-For": "203.0.113.8, 10.0.0.1"},
+        )
+
+    assert response.status_code == 429
+    assert response.headers["access-control-allow-origin"] == "https://web.example"
+
+
 def test_payload_limit_and_request_id_are_enforced() -> None:
     app = _app(Settings(mongodb_uri=None, max_request_bytes=1024))
     app.state.redis = AllowingRedis()

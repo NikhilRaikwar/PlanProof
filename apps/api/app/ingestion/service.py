@@ -55,7 +55,11 @@ class SnapshotIngestionService:
             await self.records.update_snapshot(snapshot)
             workspace, repository_root, sha = self._materialize(source)
             existing = await self.records.get_ready_snapshot(
-                source.identity, sha, snapshot.parser_version, snapshot.index_version
+                snapshot.project_id,
+                source.identity,
+                sha,
+                snapshot.parser_version,
+                snapshot.index_version,
             )
             if existing is not None and existing.id != snapshot.id:
                 await self.records.delete_snapshot(snapshot.id)
@@ -71,7 +75,11 @@ class SnapshotIngestionService:
                 # two competing index writers for the same identity.
                 for _ in range(20):
                     existing = await self.records.get_ready_snapshot(
-                        source.identity, sha, snapshot.parser_version, snapshot.index_version
+                        snapshot.project_id,
+                        source.identity,
+                        sha,
+                        snapshot.parser_version,
+                        snapshot.index_version,
                     )
                     if existing is not None:
                         await self.records.delete_snapshot(snapshot.id)
