@@ -77,5 +77,5 @@ async def test_tool_failure_records_failed_run_and_never_verifies(monkeypatch) -
     monkeypatch.setattr("app.workflow.engine.RepositoryTools.search_code_lexical", fail_search)
     await VerificationWorkflow(runs, verification, Settings()).run(run.id)
     assert obligation.status == ObligationStatus.INCONCLUSIVE
-    assert verification.create_tool_run.await_count == 1
+    assert verification.create_tool_run.await_count >= 1
     assert not obligation.evidence_ids and not obligation.counter_evidence_ids

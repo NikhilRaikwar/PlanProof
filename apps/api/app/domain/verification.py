@@ -74,12 +74,16 @@ class ToolRun(BaseModel):
 class Evidence(BaseModel):
     id: str = Field(default_factory=new_id)
     snapshot_id: str
+    run_id: str | None = None
+    obligation_id: str | None = None
     source_tool_run_id: str
     evidence_type: EvidenceType
     path: str | None = None
     line_start: int | None = Field(default=None, ge=1)
     line_end: int | None = Field(default=None, ge=1)
     content_hash: str | None = None
+    matched_query: str | None = None
+    relationship: str | None = None
     summary: str = Field(min_length=1, max_length=1000)
     created_at: datetime = Field(default_factory=now_utc)
 

@@ -729,3 +729,195 @@ async def test_real_investigation_workflow_executes_tools_and_mints_evidence() -
     await mongo.close()
 
 
+@pytest.mark.integration
+async def test_deterministic_relevance_guard_prevents_false_positive() -> None:
+    """Regression test: Unrelated match (e.g. auth in App.tsx) must not verify a ChatInterface claim."""
+    settings = Settings()
+    if not settings.mongo_is_configured:
+        pytest.skip("MongoDB is required")
+    mongo = MongoManager(settings)
+    await mongo.connect()
+    await ensure_indexes(mongo.database())
+    db = mongo.database()
+
+    user = f"rel-test-{new_id()[:6]}"
+    proj = Project(
+        name=f"{user}/averix-test",
+        owner_id=user,
+        repository_source_type=RepositorySourceType.GITHUB_APP,
+        data_scope="USER",
+    )
+    await db.projects.insert_one(proj.model_dump(mode="python"))
+
+    snap = RepositorySnapshot(
+        project_id=proj.id,
+        repository_identity=f"github:{proj.name}",
+        requested_ref="main",
+        resolved_commit_sha="aabbcc112233",
+        parser_version="v1",
+        index_version="v1",
+        status=SnapshotStatus.READY,
+    )
+    await db.repository_snapshots.insert_one(snap.model_dump(mode="python"))
+
+    # File 1: Only PrivyProvider in App.tsx (no ChatInterface, no sendMessageToAgent)
+    app_tsx = """import { PrivyProvider } from '@privy-io/react-auth';
+import Index from "./pages/Index";
+"""
+    await db.repository_files.insert_one(
+        {
+            "snapshot_id": snap.id,
+            "path": "src/App.tsx",
+            "content_hash": hashlib.sha256(app_tsx.encode()).hexdigest(),
+            "text": app_tsx,
+            "symbols": [],
+        }
+    )
+
+    plan = PlanVersion(
+        project_id=proj.id,
+        version=1,
+        change_request="Add agent client",
+        candidate_plan="Implement ChatInterface and sendMessageToAgent",
+    )
+    await db.plan_versions.insert_one(plan.model_dump(mode="python"))
+
+    run = VerificationRun(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        status=VerificationRunStatus.QUEUED,
+    )
+    await db.verification_runs.insert_one(run.model_dump(mode="python"))
+
+    ob = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="ChatInterface component must import sendMessageToAgent from '@/utils/arbitrumAgent' to process user input commands.",
+        normalized_statement="chatinterface component must import sendmessagetoagent from '@/utils/arbitrumagent' to process user input commands.",
+        category=ObligationCategory.DEPENDENCY,
+        criticality="HIGH",
+    )
+    await db.proof_obligations.insert_one(ob.model_dump(mode="python"))
+
+    runs = RunRepository(mongo)
+    verification = VerificationRepository(mongo)
+    workflow = VerificationWorkflow(runs, verification, settings)
+    await workflow.run(run.id)
+
+    # Reload obligation: MUST BE INCONCLUSIVE (not falsely VERIFIED by App.tsx)
+    u_ob = await verification.get_obligation(ob.id)
+    assert u_ob.status == ObligationStatus.INCONCLUSIVE
+    assert len(u_ob.evidence_ids) == 0
+
+    await mongo.close()
+
+
+@pytest.mark.integration
+async def test_cross_obligation_evidence_isolation() -> None:
+    """Test that evidence minted for Obligation A is isolated and never affects Obligation B."""
+    settings = Settings()
+    if not settings.mongo_is_configured:
+        pytest.skip("MongoDB is required")
+    mongo = MongoManager(settings)
+    await mongo.connect()
+    await ensure_indexes(mongo.database())
+    db = mongo.database()
+
+    user = f"iso-test-{new_id()[:6]}"
+    proj = Project(
+        name=f"{user}/multi-ob-test",
+        owner_id=user,
+        repository_source_type=RepositorySourceType.GITHUB_APP,
+        data_scope="USER",
+    )
+    await db.projects.insert_one(proj.model_dump(mode="python"))
+
+    snap = RepositorySnapshot(
+        project_id=proj.id,
+        repository_identity=f"github:{proj.name}",
+        requested_ref="main",
+        resolved_commit_sha="aabbcc445566",
+        parser_version="v1",
+        index_version="v1",
+        status=SnapshotStatus.READY,
+    )
+    await db.repository_snapshots.insert_one(snap.model_dump(mode="python"))
+
+    # File only satisfying obligation A
+    chat_file = """import { sendMessageToAgent } from '@/utils/arbitrumAgent';
+export function ChatInterface() {
+    return <div>Chat</div>;
+}
+"""
+    await db.repository_files.insert_one(
+        {
+            "snapshot_id": snap.id,
+            "path": "src/components/ChatInterface.tsx",
+            "content_hash": hashlib.sha256(chat_file.encode()).hexdigest(),
+            "text": chat_file,
+            "symbols": [],
+        }
+    )
+
+    plan = PlanVersion(
+        project_id=proj.id,
+        version=1,
+        change_request="Multi claim plan",
+        candidate_plan="Claim A and Claim B",
+    )
+    await db.plan_versions.insert_one(plan.model_dump(mode="python"))
+
+    run = VerificationRun(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        status=VerificationRunStatus.QUEUED,
+    )
+    await db.verification_runs.insert_one(run.model_dump(mode="python"))
+
+    ob_a = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="ChatInterface component imports sendMessageToAgent from '@/utils/arbitrumAgent'",
+        normalized_statement="chatinterface component imports sendmessagetoagent from '@/utils/arbitrumagent'",
+        category=ObligationCategory.DEPENDENCY,
+        criticality="HIGH",
+    )
+    ob_b = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="Database schema defines user_balance integer column with unique constraint",
+        normalized_statement="database schema defines user_balance integer column with unique constraint",
+        category=ObligationCategory.SCHEMA,
+        criticality="HIGH",
+    )
+    await db.proof_obligations.insert_one(ob_a.model_dump(mode="python"))
+    await db.proof_obligations.insert_one(ob_b.model_dump(mode="python"))
+
+    runs = RunRepository(mongo)
+    verification = VerificationRepository(mongo)
+    workflow = VerificationWorkflow(runs, verification, settings)
+    await workflow.run(run.id)
+
+    u_ob_a = await verification.get_obligation(ob_a.id)
+    u_ob_b = await verification.get_obligation(ob_b.id)
+
+    # Obligation A is VERIFIED with exact evidence
+    assert u_ob_a.status == ObligationStatus.VERIFIED
+    assert len(u_ob_a.evidence_ids) == 1
+
+    # Obligation B is INCONCLUSIVE with 0 evidence (isolated)
+    assert u_ob_b.status == ObligationStatus.INCONCLUSIVE
+    assert len(u_ob_b.evidence_ids) == 0
+
+    await mongo.close()
+
+
+

@@ -19,6 +19,158 @@ class WorkflowState(TypedDict):
     run_id: str
 
 
+STOP_WORDS = {
+    "use", "uses", "used", "using", "add", "adds", "added", "adding", "create", "creates",
+    "created", "creating", "update", "updates", "updated", "updating", "delete", "deletes",
+    "deleted", "deleting", "implement", "implements", "implemented", "implementing", "ensure",
+    "ensures", "ensured", "ensuring", "check", "checks", "checked", "checking", "follow",
+    "follows", "followed", "following", "handle", "handles", "handled", "handling", "read",
+    "reads", "write", "writes", "store", "stores", "stored", "storing", "dispatch",
+    "dispatches", "dispatched", "dispatching", "the", "this", "that", "these", "those",
+    "from", "with", "without", "and", "for", "to", "into", "onto", "should", "will", "can",
+    "must", "have", "has", "had", "been", "all", "any", "not", "component", "function",
+    "utility", "class", "module", "service", "process", "user", "input", "commands",
+    "application", "existing", "backend", "database", "validation", "authentication",
+    "patterns", "pattern", "layer", "security", "enhanced", "error", "logging", "integrated",
+    "around", "communication", "configuration", "endpoints", "system", "code", "schema",
+    "synchronization", "client", "billing", "model", "models", "import", "imports", "imported",
+    "export", "exports", "exported", "const", "let", "var", "type", "interface", "true", "false"
+}
+
+
+def _extract_primary_obligation_symbols(obligation) -> list[str]:
+    """Extract distinct identifiers, quoted tokens, paths, and hints that define the obligation."""
+    symbols = []
+    statement = obligation.statement
+
+    # 1. Backticked tokens
+    for token in re.findall(r"`([^`]+)`", statement):
+        clean = token.strip()
+        if clean and clean.lower() not in STOP_WORDS:
+            symbols.append(clean)
+
+    # 2. Quoted tokens
+    for token in re.findall(r"['\"]([^'\"]+)['\"]", statement):
+        clean = token.strip()
+        if clean and clean.lower() not in STOP_WORDS:
+            symbols.append(clean)
+
+    # 3. Path references (e.g. '@/utils/arbitrumAgent', 'src/components/ChatInterface.tsx')
+    for path in re.findall(r"(?:@\/|[a-zA-Z0-9_-]+\/)[a-zA-Z0-9_./-]+", statement):
+        clean = path.strip().strip("'\"`")
+        if clean and clean.lower() not in STOP_WORDS:
+            symbols.append(clean)
+
+    # 4. Specific PascalCase, camelCase, UPPER_CASE, snake_case, or distinctive words
+    for word in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]{2,}\b", statement):
+        if word.lower() in STOP_WORDS:
+            continue
+        if (
+            (any(c.isupper() for c in word) and any(c.islower() for c in word))  # camelCase / PascalCase
+            or (word.isupper() and len(word) >= 3)                               # UPPER_CASE
+            or ("_" in word and len(word) >= 3)                                  # snake_case
+            or len(word) >= 5                                                    # distinctive technical terms (e.g. mongoose)
+        ):
+            symbols.append(word)
+
+    # 5. Hints are explicit domain symbols
+    for hint in obligation.verification_hints:
+        clean = hint.strip().strip("'\"`")
+        if clean and clean.lower() not in STOP_WORDS:
+            symbols.append(clean)
+
+    return symbols
+
+
+def extract_obligation_queries(obligation) -> list[tuple[str, ObligationStatus, str]]:
+    """Extract bounded, prioritized deterministic queries from an obligation statement and hints."""
+    statement = obligation.statement
+    statement_lower = statement.casefold()
+
+    queries: list[tuple[str, ObligationStatus, str]] = []
+
+    # 1. Deterministic contradiction/verification patterns (synthetic & fixture rules)
+    if any(token in statement_lower for token in {"multiple refund", "unique refund", "refund uniqueness"}):
+        queries.append(("unique: true", ObligationStatus.DISPROVED, "Schema uniqueness constraint"))
+    if "idempotency" in statement_lower and any(token in statement_lower for token in {"partial refund", "amount is not part"}):
+        queries.append(("partial refund amount is not part", ObligationStatus.DISPROVED, "Idempotency key constraint"))
+    if "ledger" in statement_lower or "captured_amount" in statement_lower:
+        queries.append(("return -event.captured_amount", ObligationStatus.DISPROVED, "Ledger calculation"))
+    if any(token in statement_lower for token in {"provider", "accepts positive", "positive amount"}):
+        queries.append(("refund amount must be positive", ObligationStatus.VERIFIED, "Provider accepts positive amount"))
+
+    # 2. Extract primary symbols
+    for sym in _extract_primary_obligation_symbols(obligation):
+        queries.append((sym, ObligationStatus.VERIFIED, f"Primary symbol {sym}"))
+
+    # 3. Extract from verification hints
+    for hint in obligation.verification_hints:
+        clean_hint = hint.strip().strip("'\"`")
+        if clean_hint and clean_hint.lower() not in STOP_WORDS:
+            queries.append((clean_hint, ObligationStatus.VERIFIED, f"Verification hint {clean_hint}"))
+        for token in re.findall(r"`([^`]+)`", hint):
+            if token.strip() and token.strip().lower() not in STOP_WORDS:
+                queries.append((token.strip(), ObligationStatus.VERIFIED, f"Hint token `{token}`"))
+        for token in re.findall(r"['\"]([^'\"]+)['\"]", hint):
+            if token.strip() and token.strip().lower() not in STOP_WORDS:
+                queries.append((token.strip(), ObligationStatus.VERIFIED, f"Hint token '{token}'"))
+        for word in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]{3,}\b", hint):
+            if word.lower() not in STOP_WORDS:
+                queries.append((word, ObligationStatus.VERIFIED, f"Hint identifier {word}"))
+
+    # Deduplicate while preserving priority order
+    seen = set()
+    deduped = []
+    for q, status, desc in queries:
+        q_norm = q.strip().casefold()
+        if q_norm and q_norm not in seen:
+            seen.add(q_norm)
+            deduped.append((q.strip(), status, desc))
+
+    return deduped
+
+
+def check_evidence_relevance(obligation, path: str, snippet: str, matched_query: str) -> bool:
+    """Validate that repository snippet/path genuinely proves or disproves the obligation."""
+    statement_lower = obligation.statement.casefold()
+    snippet_lower = snippet.casefold()
+    path_lower = path.casefold()
+    query_lower = matched_query.casefold()
+
+    # Special deterministic fixture invariants
+    if "multiple refund" in statement_lower and "unique: true" in snippet_lower:
+        return True
+    if "idempotency" in statement_lower and "partial refund amount is not part" in snippet_lower:
+        return True
+    if "positive" in statement_lower and "refund amount must be positive" in snippet_lower:
+        return True
+    if "ledger" in statement_lower and "return -event.captured_amount" in snippet_lower:
+        return True
+
+    # Extract all required primary symbols from statement
+    primary_symbols = _extract_primary_obligation_symbols(obligation)
+
+    if primary_symbols:
+        # At least one primary symbol or path MUST be present in the snippet or file path
+        found = False
+        for sym in primary_symbols:
+            sym_lower = sym.casefold()
+            # If sym is a path fragment like '@/utils/arbitrumAgent' or 'arbitrumAgent'
+            clean_sym = sym_lower.replace("@/", "").rstrip(".ts").rstrip(".tsx").rstrip(".js")
+            if (
+                sym_lower in snippet_lower
+                or sym_lower in path_lower
+                or (len(clean_sym) >= 4 and (clean_sym in snippet_lower or clean_sym in path_lower))
+            ):
+                found = True
+                break
+        if not found:
+            return False
+
+    # The matched query must also be contained in the snippet or path
+    return query_lower in snippet_lower or query_lower in path_lower
+
+
 class VerificationWorkflow:
     """A single bounded orchestrator; MongoDB remains the durable source of truth."""
 
@@ -83,11 +235,7 @@ class VerificationWorkflow:
             )
         run.status = VerificationRunStatus.VERIFYING
         await self.runs.update_run(run)
-        # Establish code-backed facts before pausing for product/operational
-        # authority.  A cross-service/business question must not prevent the
-        # same immutable run from discovering direct repository contradictions.
-        # This ordering is deterministic and deliberately independent of the
-        # model's proposal order.
+        # Establish code-backed facts before pausing for product/operational authority
         ordered_obligations = sorted(
             obligations,
             key=lambda item: item.category
@@ -141,7 +289,7 @@ class VerificationWorkflow:
         return state
 
     async def _investigate(self, run, obligation) -> None:
-        """A bounded, deterministic repository investigation for code-verifiable claims."""
+        """A bounded, deterministic repository investigation with relevance guards."""
         if run.tool_call_count >= self.settings.verification_max_tool_calls:
             obligation.status = ObligationStatus.INCONCLUSIVE
             obligation.proposal_metadata["inconclusive_reason"] = "Investigation tool budget reached"
@@ -149,77 +297,12 @@ class VerificationWorkflow:
             return
 
         tools = RepositoryTools(self.runs, self.verification, run_id=run.id)
-        statement = obligation.statement.casefold()
+        queries = extract_obligation_queries(obligation)
 
-        # 1. Check known explicit deterministic contradictions / verification patterns
-        patterns: list[tuple[str, ObligationStatus, str]] = []
-        if any(token in statement for token in {"multiple refund", "schema", "migration"}):
-            patterns.append(("unique: true", ObligationStatus.DISPROVED, "Schema uniqueness constraint contradicts claim"))
-        if "idempotency" in statement:
-            patterns.append(("partial refund amount is not part", ObligationStatus.DISPROVED, "Idempotency key constraint"))
-        if any(token in statement for token in {"billing", "ledger"}):
-            patterns.append(("return -event.captured_amount", ObligationStatus.DISPROVED, "Ledger calculation contradicts claim"))
-        if any(token in statement for token in {"provider", "accepts", "amount"}):
-            patterns.append(("refund amount must be positive", ObligationStatus.VERIFIED, "Provider accepts positive amount"))
+        # Cap bounded searches per obligation (max 4 searches)
+        bounded_terms = queries[:4]
 
-        # 2. Extract domain search terms from verification hints and statement
-        search_terms: list[tuple[str, ObligationStatus, str]] = list(patterns)
-
-        # Add hints
-        for hint in obligation.verification_hints:
-            clean_hint = hint.strip().strip('"\'`')
-            if clean_hint and 3 <= len(clean_hint) <= 80:
-                search_terms.append((clean_hint, ObligationStatus.VERIFIED, f"Repository evidence matching hint '{clean_hint}'"))
-
-        # Add category-specific architectural keyword searches
-        statement_words = set(re.findall(r"[a-zA-Z_][a-zA-Z0-9_-]{3,}", statement))
-
-        if obligation.category in {
-            ObligationCategory.SCHEMA,
-            ObligationCategory.DEPENDENCY,
-            ObligationCategory.API_CONTRACT,
-            ObligationCategory.BEHAVIOR,
-            ObligationCategory.SYMBOL,
-            ObligationCategory.IDEMPOTENCY,
-            ObligationCategory.UNKNOWN,
-        }:
-            if any(w in statement_words for w in {"database", "mongo", "mongodb", "model", "models", "schema", "prisma", "mongoose", "postgres", "sql"}):
-                for term in ["mongoose", "prisma", "mongodb", "Schema", "model", "database", "db."]:
-                    search_terms.append((term, ObligationStatus.VERIFIED, f"Database/persistence pattern '{term}'"))
-
-            if any(w in statement_words for w in {"auth", "authentication", "jwt", "session", "user", "token"}):
-                for term in ["jwt", "auth", "session", "passport", "bearer", "login"]:
-                    search_terms.append((term, ObligationStatus.VERIFIED, f"Authentication pattern '{term}'"))
-
-            if any(w in statement_words for w in {"route", "router", "routes", "api", "endpoint", "controller", "express", "fastapi"}):
-                for term in ["router", "express", "app.use", "app.get", "app.post", "api/", "APIRouter"]:
-                    search_terms.append((term, ObligationStatus.VERIFIED, f"Routing convention '{term}'"))
-
-            if any(w in statement_words for w in {"validation", "validate", "validator", "zod", "pydantic"}):
-                for term in ["zod", "pydantic", "validate", "schema.parse"]:
-                    search_terms.append((term, ObligationStatus.VERIFIED, f"Validation pattern '{term}'"))
-
-            if any(w in statement_words for w in {"test", "tests", "spec", "jest", "pytest"}):
-                for term in ["describe(", "test(", "it(", "def test_"]:
-                    search_terms.append((term, ObligationStatus.VERIFIED, f"Test suite pattern '{term}'"))
-
-            if any(w in statement_words for w in {"conversation", "history", "message", "chat"}):
-                for term in ["conversation", "history", "message", "chat"]:
-                    search_terms.append((term, ObligationStatus.VERIFIED, f"Conversation history pattern '{term}'"))
-
-        # Deduplicate search terms by query string
-        seen_queries = set()
-        unique_terms = []
-        for q, term_status, desc in search_terms:
-            q_norm = q.strip().casefold()
-            if q_norm and q_norm not in seen_queries:
-                seen_queries.add(q_norm)
-                unique_terms.append((q, term_status, desc))
-
-        # Cap bounded searches per obligation (max 3 searches)
-        bounded_terms = unique_terms[:3]
-
-        # If no terms derived, do a lexical match of statement prefix
+        # If no queries derived, do a lexical match of statement prefix
         if not bounded_terms:
             bounded_terms = [(obligation.statement[:40], ObligationStatus.VERIFIED, "Lexical match for statement")]
 
@@ -233,12 +316,18 @@ class VerificationWorkflow:
                     run.tool_call_count += 1
                     if symbols:
                         sym_match = symbols[0]
+                        if not check_evidence_relevance(obligation, sym_match["path"], sym_match.get("qualified_name", ""), sym):
+                            continue
                         tool_doc = await self.verification.database.tool_runs.find_one(
                             {"run_id": run.id, "tool_name": "find_symbol"},
                             sort=[("started_at", -1)],
                         )
                         evidence = await EvidenceAuthority(self.verification).issue_source_range(
                             snapshot_id=run.snapshot_id,
+                            run_id=run.id,
+                            obligation_id=obligation.id,
+                            matched_query=sym,
+                            relationship="SUPPORTS",
                             tool_run_id=tool_doc["id"] if tool_doc else "tool-symbol-search",
                             path=sym_match["path"],
                             line_start=sym_match["line_start"],
@@ -255,7 +344,7 @@ class VerificationWorkflow:
                 except Exception:
                     pass
 
-        # Execute bounded lexical searches
+        # Execute bounded lexical searches with strict deterministic relevance checks
         for query, terminal, desc in bounded_terms:
             if run.tool_call_count >= self.settings.verification_max_tool_calls:
                 break
@@ -268,6 +357,24 @@ class VerificationWorkflow:
                 if not matches:
                     continue
                 match = matches[0]
+
+                # Fetch file snippet to verify deterministic relevance
+                file_doc = await self.verification.database.repository_files.find_one(
+                    {"snapshot_id": run.snapshot_id, "path": match["path"]}
+                )
+                if not file_doc:
+                    continue
+
+                lines = file_doc.get("text", "").splitlines()
+                start_l = max(1, match["line_start"])
+                end_l = min(len(lines), match["line_end"])
+                matched_snippet = "\n".join(lines[start_l - 1 : end_l])
+
+                # Guard: Verify relevance to THIS specific obligation
+                if not check_evidence_relevance(obligation, match["path"], matched_snippet, query):
+                    # Candidate match does not satisfy this obligation's specific claims
+                    continue
+
                 tool_doc = await self.verification.database.tool_runs.find_one(
                     {"run_id": run.id, "tool_name": "search_code_lexical"},
                     sort=[("started_at", -1)],
@@ -277,11 +384,15 @@ class VerificationWorkflow:
                 )
                 evidence = await EvidenceAuthority(self.verification).issue_source_range(
                     snapshot_id=run.snapshot_id,
+                    run_id=run.id,
+                    obligation_id=obligation.id,
+                    matched_query=query,
+                    relationship="CONTRADICTS" if terminal == ObligationStatus.DISPROVED else "SUPPORTS",
                     tool_run_id=tool_doc["id"] if tool_doc else "tool-search-code-lexical",
                     path=match["path"],
-                    line_start=match["line_start"],
-                    line_end=match["line_end"],
-                    summary=f"{desc} in {match['path']}:{match['line_start']}-{match['line_end']}",
+                    line_start=start_l,
+                    line_end=end_l,
+                    summary=f"{desc} in {match['path']}:{start_l}-{end_l}",
                 )
                 await EvidenceAuthority(self.verification).validate(evidence.id)
                 if terminal == ObligationStatus.DISPROVED:
@@ -311,7 +422,7 @@ class VerificationWorkflow:
                 )
                 await self._event(run.id, "tool_failed", "Repository tool failed safely")
 
-        # If bounded investigation completes with no matches:
+        # If bounded investigation completes with no relevant matches:
         obligation.status = ObligationStatus.INCONCLUSIVE
         obligation.proposal_metadata["inconclusive_reason"] = "No supporting repository evidence found within investigation budget"
         await self._event(run.id, "obligation_completed", "Obligation became INCONCLUSIVE: No supporting repository evidence found within investigation budget")

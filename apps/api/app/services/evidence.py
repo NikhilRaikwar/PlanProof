@@ -19,6 +19,10 @@ class EvidenceAuthority:
         line_start: int,
         line_end: int,
         summary: str,
+        run_id: str | None = None,
+        obligation_id: str | None = None,
+        matched_query: str | None = None,
+        relationship: str | None = None,
     ) -> Evidence:
         tool_run = await self.repository.get_tool_run(tool_run_id)
         if (
@@ -39,12 +43,16 @@ class EvidenceAuthority:
         return await self.repository.create_evidence(
             Evidence(
                 snapshot_id=snapshot_id,
+                run_id=run_id,
+                obligation_id=obligation_id,
                 source_tool_run_id=tool_run_id,
                 evidence_type=EvidenceType.SOURCE_RANGE,
                 path=path,
                 line_start=line_start,
                 line_end=line_end,
                 content_hash=file["content_hash"],
+                matched_query=matched_query,
+                relationship=relationship,
                 summary=summary,
             )
         )
