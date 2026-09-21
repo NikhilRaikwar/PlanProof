@@ -28,6 +28,9 @@ from app.domain.verification import (
     ToolRunStatus,
 )
 from app.main import create_app
+from app.repositories.runs import RunRepository
+from app.repositories.verification import VerificationRepository
+from app.workflow.engine import VerificationWorkflow
 
 
 def _sign(value: str, secret: str) -> str:
@@ -573,4 +576,156 @@ async def test_run_report_human_decision_state_and_evidence_snippets() -> None:
         assert ev_list[0]["obligation_id"] == ob.id
 
     await mongo.close()
+
+
+@pytest.mark.integration
+async def test_real_investigation_workflow_executes_tools_and_mints_evidence() -> None:
+    settings = Settings()
+    if not settings.mongo_is_configured:
+        pytest.skip("MongoDB is required")
+    mongo = MongoManager(settings)
+    await mongo.connect()
+    await ensure_indexes(mongo.database())
+    db = mongo.database()
+
+    proj = Project(
+        name="test-org/investigation-repo",
+        owner_id="test-investigator",
+        repository_source_type=RepositorySourceType.PUBLIC_GITHUB,
+        github_installation_id=98765,
+        data_scope="USER",
+    )
+    await db.projects.insert_one(proj.model_dump(mode="python"))
+
+    snap = RepositorySnapshot(
+        project_id=proj.id,
+        repository_identity="test-org/investigation-repo",
+        parser_version="v1",
+        index_version="v1",
+        status=SnapshotStatus.READY,
+        resolved_commit_sha="a1b2c3d4e5f6",
+    )
+    await db.repository_snapshots.insert_one(snap.model_dump(mode="python"))
+
+    routes_text = "import express from 'express';\nexport const router = express.Router();\nrouter.get('/history', getHistory);"
+    convo_text = "import mongoose, { Schema } from 'mongoose';\nconst ConversationSchema = new Schema({ userId: String, messages: Array });\nexport const Conversation = mongoose.model('Conversation', ConversationSchema);"
+
+    # Seed files into repository_files with authentic sha256 content hashes
+    await db.repository_files.insert_one(
+        {
+            "snapshot_id": snap.id,
+            "path": "src/api/routes.ts",
+            "language": "typescript",
+            "size_bytes": len(routes_text.encode()),
+            "content_hash": hashlib.sha256(routes_text.encode()).hexdigest(),
+            "text": routes_text,
+        }
+    )
+    await db.repository_files.insert_one(
+        {
+            "snapshot_id": snap.id,
+            "path": "src/models/conversation.ts",
+            "language": "typescript",
+            "size_bytes": len(convo_text.encode()),
+            "content_hash": hashlib.sha256(convo_text.encode()).hexdigest(),
+            "text": convo_text,
+        }
+    )
+
+    plan = PlanVersion(
+        project_id=proj.id,
+        version=1,
+        change_request="Add conversation history to the API",
+        candidate_plan="Use existing mongoose database model and express router",
+    )
+    await db.plan_versions.insert_one(plan.model_dump(mode="python"))
+
+    run = VerificationRun(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        status=VerificationRunStatus.QUEUED,
+    )
+    await db.verification_runs.insert_one(run.model_dump(mode="python"))
+
+    # Create 3 obligations:
+    # 1. Code-verifiable matching MongoDB / mongoose
+    ob1 = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="Use existing mongoose model and database persistence schema",
+        normalized_statement="use existing mongoose model and database persistence schema",
+        category=ObligationCategory.SCHEMA,
+        criticality="HIGH",
+        verification_hints=["mongoose", "Schema"],
+    )
+    # 2. Code-verifiable with no matching code in repository
+    ob2 = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="Use existing gRPC protobuf client for billing synchronization",
+        normalized_statement="use existing grpc protobuf client for billing synchronization",
+        category=ObligationCategory.DEPENDENCY,
+        criticality="MEDIUM",
+        verification_hints=["grpc_client_proto_v2"],
+    )
+    # 3. Business rule requiring human authority
+    ob3 = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="Conversation history must be deleted automatically after 30 days",
+        normalized_statement="conversation history must be deleted automatically after 30 days",
+        category=ObligationCategory.BUSINESS_RULE,
+        criticality="CRITICAL",
+    )
+
+    await db.proof_obligations.insert_one(ob1.model_dump(mode="python"))
+    await db.proof_obligations.insert_one(ob2.model_dump(mode="python"))
+    await db.proof_obligations.insert_one(ob3.model_dump(mode="python"))
+
+    runs = RunRepository(mongo)
+    verification = VerificationRepository(mongo)
+
+    # Run workflow
+    workflow = VerificationWorkflow(runs, verification, settings)
+    await workflow.run(run.id)
+
+    # Reload run and obligations
+    updated_run = await runs.get_run(run.id)
+    u_ob1 = await verification.get_obligation(ob1.id)
+    u_ob2 = await verification.get_obligation(ob2.id)
+    u_ob3 = await verification.get_obligation(ob3.id)
+
+    # 1. Code matching obligation is VERIFIED with server-issued evidence
+    assert u_ob1.status == ObligationStatus.VERIFIED
+    assert len(u_ob1.evidence_ids) >= 1
+    ev_doc = await db.evidence.find_one({"id": u_ob1.evidence_ids[0]})
+    assert ev_doc is not None
+    assert ev_doc["snapshot_id"] == snap.id
+    assert ev_doc["path"] == "src/models/conversation.ts"
+
+    # 2. Non-matching obligation is INCONCLUSIVE with truthful explanation
+    assert u_ob2.status == ObligationStatus.INCONCLUSIVE
+    assert "inconclusive_reason" in u_ob2.proposal_metadata
+
+    # 3. Business rule is HUMAN_REQUIRED and run is paused at HUMAN_WAIT
+    assert u_ob3.status == ObligationStatus.HUMAN_REQUIRED
+    assert updated_run.status == VerificationRunStatus.HUMAN_WAIT
+    assert len(updated_run.open_human_question_ids) == 1
+
+    # 4. Tool runs are stamped with exact run_id
+    tool_runs = [item async for item in db.tool_runs.find({"run_id": run.id})]
+    assert len(tool_runs) >= 2
+    for tr in tool_runs:
+        assert tr["run_id"] == run.id
+        assert tr["snapshot_id"] == snap.id
+
+    await mongo.close()
+
 

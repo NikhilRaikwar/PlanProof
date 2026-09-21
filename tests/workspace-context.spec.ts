@@ -381,6 +381,6 @@ test.describe('Workspace Context & Isolation', () => {
     await page.goto('/workspace/tool-traces')
     await expect(page.getByText('Payment-Service').first()).toBeVisible()
     await expect(page.getByText('search_code_lexical')).toBeVisible()
-    await expect(page.getByText('assertIdempotency')).toBeVisible()
+    await expect(page.getByText('assertIdempotency').first()).toBeVisible()
   })
 })

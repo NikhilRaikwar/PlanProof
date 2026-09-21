@@ -70,6 +70,7 @@ export type Obligation = {
   evidence_ids: string[]
   counter_evidence_ids: string[]
   verification_hints?: string[]
+  proposal_metadata?: Record<string, string>
 }
 
 export type Evidence = {

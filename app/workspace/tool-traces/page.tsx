@@ -4,15 +4,17 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { 
   CheckCircle2, 
+  ChevronDown, 
+  ChevronRight, 
   Clock, 
+  FileCode, 
   FolderGit2, 
+  Info, 
   Layers3, 
+  Search, 
   Terminal, 
   Wrench, 
-  XCircle, 
-  Search, 
-  FileCode, 
-  Info 
+  XCircle 
 } from 'lucide-react'
 import { api, ApiError, RunProjection, ToolRun, VerificationRun } from '@/lib/api'
 import { useWorkspace } from '@/components/workspace-context'
@@ -26,6 +28,7 @@ export default function ToolTracesPage() {
   const [loadingRuns, setLoadingRuns] = useState(false)
   const [loadingTraces, setLoadingTraces] = useState(false)
   const [error, setError] = useState('')
+  const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null)
 
   // 1. Fetch runs scoped to the selected repository
   useEffect(() => {
@@ -71,10 +74,15 @@ export default function ToolTracesPage() {
       .then(([traces, proj]) => {
         setItems(traces)
         setProjection(proj)
+        if (traces.length > 0) {
+          setExpandedTraceId(traces[0].id)
+        }
       })
       .catch(e => setError(e instanceof ApiError ? e.message : 'Could not load tool traces.'))
       .finally(() => setLoadingTraces(false))
   }, [selectedRunId])
+
+  const selectedRun = runs.find(r => r.id === selectedRunId)
 
   const getToolIcon = (toolName: string) => {
     if (toolName.includes('search')) return <Search size={14} color="#EA580C" />
@@ -133,135 +141,189 @@ export default function ToolTracesPage() {
       ) : (
         <div style={{ display: 'grid', gap: 16 }}>
           {/* Run Selector Scoped to Selected Repository */}
-          <div className="card-panel-white" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-            <label htmlFor="trace-run-select" style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
-              Verification Run:
-            </label>
-            <select
-              id="trace-run-select"
-              className="custom-select-box"
-              style={{ maxWidth: 460 }}
-              value={selectedRunId}
-              onChange={e => setSelectedRunId(e.target.value)}
-            >
-              {runs.map(r => (
-                <option key={r.id} value={r.id}>
-                  run-{r.id.slice(0, 8)} · {r.status} · {r.plan_title ? r.plan_title.slice(0, 45) : new Date(r.created_at).toLocaleDateString()}
-                </option>
-              ))}
-            </select>
+          <div className="card-panel-white" style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flex: 1 }}>
+              <label htmlFor="trace-run-select" style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap' }}>
+                Run selector:
+              </label>
+              <select
+                id="trace-run-select"
+                className="custom-select-box"
+                style={{ maxWidth: 520, height: 38, fontSize: 12.5 }}
+                value={selectedRunId}
+                onChange={e => setSelectedRunId(e.target.value)}
+              >
+                {runs.map(r => (
+                  <option key={r.id} value={r.id}>
+                    run-{r.id.slice(0, 8)} · [{r.status}] · {r.plan_title ? r.plan_title.slice(0, 50) : new Date(r.created_at).toLocaleDateString()}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {selectedRunId && (
-              <Link href={`/workspace/runs/${selectedRunId}`} style={{ fontSize: 12, color: '#EA580C', fontWeight: 650, textDecoration: 'none' }}>
-                View full gate report →
+              <Link 
+                href={`/workspace/runs/${selectedRunId}`} 
+                style={{ fontSize: 12, color: '#EA580C', fontWeight: 650, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <span>View full gate report</span>
+                <span>→</span>
               </Link>
             )}
           </div>
 
-          {error && <div className="card-panel-white" style={{ color: '#B91C1C' }}>{error}</div>}
+          {/* Attribution Notice */}
+          {projection?.trace_attribution_status === 'LEGACY_ATTRIBUTED' && (
+            <div className="card-panel-subtle" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', fontSize: 12, color: '#475569' }}>
+              <Info size={14} color="#0284C7" />
+              <span>
+                Historical run: showing exact tool executions bound through server-issued evidence records.
+              </span>
+            </div>
+          )}
 
+          {projection?.trace_attribution_status === 'LEGACY_UNAVAILABLE' && (
+            <div className="card-panel-subtle" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', fontSize: 12, color: '#D97706', background: '#FFFBEB', borderColor: '#FDE68A' }}>
+              <Info size={14} color="#D97706" />
+              <span>
+                Legacy trace attribution unavailable: this historical run did not capture exact run-level tool execution linkages.
+              </span>
+            </div>
+          )}
+
+          {/* Trace List with In-Place Expansion */}
           {loadingTraces ? (
             <div className="card-panel-white" style={{ textAlign: 'center', padding: 40, color: '#64748B' }}>
               Loading execution telemetry…
             </div>
           ) : items.length === 0 ? (
             <div className="card-panel-white" style={{ textAlign: 'center', padding: 48, color: '#64748B' }}>
-              {projection?.trace_attribution_status === 'LEGACY_TRACE_UNAVAILABLE'
-                ? 'Legacy trace telemetry attribution unavailable for this historical run.'
-                : 'No tool executions recorded for this verification run.'}
+              <Terminal size={32} style={{ color: '#94A3B8', margin: '0 auto 10px' }} />
+              <strong style={{ display: 'block', color: '#0F172A', fontSize: 14, marginBottom: 4 }}>
+                No tool executions were recorded for this run.
+              </strong>
+              <p style={{ fontSize: 12.5, margin: 0 }}>
+                {selectedRun?.status === 'FAILED'
+                  ? 'The verification ended before repository investigation completed.'
+                  : 'The run did not trigger bounded tool execution steps.'}
+              </p>
             </div>
           ) : (
-            <div style={{ display: 'grid', gap: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748B', padding: '0 4px' }}>
-                <span>Showing <strong>{items.length}</strong> persisted tool executions</span>
-                {projection?.trace_attribution_status && (
-                  <span style={{ fontSize: 11, background: '#F1F5F9', padding: '2px 8px', borderRadius: 4 }}>
-                    Attribution: {projection.trace_attribution_status}
-                  </span>
-                )}
-              </div>
-
-              {items.map((item, idx) => {
-                const isSuccess = item.status === 'SUCCEEDED'
-                const summary = item.input_summary || {}
+            <div style={{ display: 'grid', gap: 10 }}>
+              {items.map((t, idx) => {
+                const isFailed = t.status === 'FAILED'
+                const isExpanded = expandedTraceId === t.id
+                const summary = t.input_summary
 
                 return (
-                  <article 
-                    key={item.id || idx} 
-                    className="card-panel-white" 
-                    style={{ padding: 16, display: 'grid', gap: 10 }}
+                  <article
+                    key={t.id}
+                    className="card-panel-white"
+                    style={{
+                      padding: 0,
+                      borderColor: isFailed ? '#FCA5A5' : isExpanded ? '#CBD5E1' : '#E2E8F0',
+                      background: isFailed ? '#FEF2F2' : '#FFFFFF',
+                      overflow: 'hidden',
+                      transition: 'all 0.15s ease',
+                    }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {getToolIcon(item.tool_name)}
-                        <strong style={{ fontFamily: 'var(--font-mono)', fontSize: 13.5, color: '#0F172A' }}>
-                          {item.tool_name}
-                        </strong>
-                      </div>
+                    {/* Header Row / Toggle */}
+                    <div
+                      onClick={() => setExpandedTraceId(isExpanded ? null : t.id)}
+                      style={{
+                        padding: '14px 18px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 12,
+                        userSelect: 'none',
+                        background: isExpanded ? '#F8FAFC' : 'transparent',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 260 }}>
+                        {isExpanded ? <ChevronDown size={15} color="#64748B" /> : <ChevronRight size={15} color="#64748B" />}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: '#0F172A' }}>
+                          {getToolIcon(t.tool_name)}
+                          <code>{t.tool_name}</code>
+                          <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>#{idx + 1}</span>
+                        </span>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {isSuccess ? (
-                          <span className="badge-pill-base badge-verified" style={{ fontSize: 10.5 }}>
-                            <CheckCircle2 size={12} /> SUCCEEDED
-                          </span>
-                        ) : (
-                          <span className="badge-pill-base badge-blocked" style={{ fontSize: 10.5 }}>
-                            <XCircle size={12} /> FAILED
+                        {summary?.query && (
+                          <span className="commit-mini-tag" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            &quot;{summary.query}&quot;
                           </span>
                         )}
-                        <span style={{ fontSize: 11, color: '#64748B', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                          <Clock size={11} /> {item.duration_ms} ms
+
+                        {summary?.path && (
+                          <span style={{ fontSize: 11.5, color: '#64748B', fontFamily: 'var(--font-mono)' }}>
+                            {summary.path}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: '#64748B' }}>
+                          <Clock size={11} /> {t.duration_ms}ms
+                        </span>
+
+                        <span style={{ fontSize: 11.5, color: '#64748B' }}>
+                          {t.result_count} {t.result_count === 1 ? 'match' : 'matches'}
+                        </span>
+
+                        <span className={`badge-pill-base ${isFailed ? 'badge-blocked' : 'badge-verified'}`} style={{ fontSize: 10.5 }}>
+                          {isFailed ? <XCircle size={11} /> : <CheckCircle2 size={11} />}
+                          {t.status}
                         </span>
                       </div>
                     </div>
 
-                    {/* Safe Sanitized Input Summary */}
-                    {Object.keys(summary).length > 0 && (
-                      <div style={{ background: '#F8FAFC', padding: 10, borderRadius: 6, border: '1px solid #E2E8F0', display: 'grid', gap: 4, fontSize: 12 }}>
-                        {summary.query && (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <span style={{ color: '#64748B', fontWeight: 600 }}>Query:</span>
-                            <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>&quot;{String(summary.query)}&quot;</code>
+                    {/* Expanded Detail View In Place */}
+                    {isExpanded && (
+                      <div style={{ padding: 18, borderTop: '1px solid #E2E8F0', display: 'grid', gap: 14 }}>
+                        {/* Parameter Summary */}
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748B' }}>
+                            Safe Execution Inputs
+                          </span>
+                          <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 6, padding: '10px 14px', fontSize: 12, fontFamily: 'var(--font-mono)', color: '#0F172A', display: 'grid', gap: 4 }}>
+                            {summary ? (
+                              Object.entries(summary).map(([k, v]) => (
+                                <div key={k} style={{ display: 'flex', gap: 8 }}>
+                                  <strong style={{ color: '#64748B', minWidth: 90 }}>{k}:</strong>
+                                  <span>{String(v)}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <span>input_hash: {t.input_hash}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Error info if failed */}
+                        {isFailed && (
+                          <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 6, padding: '10px 14px', fontSize: 12, color: '#991B1B' }}>
+                            <strong>Execution Failure:</strong> {t.safe_error_class || 'TOOL_FAILURE'}
                           </div>
                         )}
-                        {summary.path && (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <span style={{ color: '#64748B', fontWeight: 600 }}>Path:</span>
-                            <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{String(summary.path)}</code>
-                          </div>
-                        )}
-                        {summary.name && (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <span style={{ color: '#64748B', fontWeight: 600 }}>Symbol:</span>
-                            <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{String(summary.name)}</code>
-                          </div>
-                        )}
-                        {summary.line_range && (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <span style={{ color: '#64748B', fontWeight: 600 }}>Lines:</span>
-                            <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{String(summary.line_range)}</code>
-                          </div>
-                        )}
+
+                        {/* Telemetry metadata footer */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#94A3B8', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid #F1F5F9' }}>
+                          <span>Trace ID: <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{t.id}</code></span>
+                          <span>·</span>
+                          <span>Snapshot: <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{t.snapshot_id ? t.snapshot_id.slice(0, 7) : 'n/a'}</code></span>
+                          {t.run_id && (
+                            <>
+                              <span>·</span>
+                              <span>Run ID: <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{t.run_id.slice(0, 8)}</code></span>
+                            </>
+                          )}
+                          <span>·</span>
+                          <span>Executed: {new Date(t.started_at).toLocaleTimeString()}</span>
+                        </div>
                       </div>
                     )}
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: '#94A3B8', flexWrap: 'wrap', gap: 8, paddingTop: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span>Results: <strong style={{ color: '#0F172A' }}>{item.result_count}</strong></span>
-                        <span>·</span>
-                        <span>Fingerprint: <code style={{ fontFamily: 'var(--font-mono)' }}>{item.input_hash.slice(0, 12)}</code></span>
-                        {item.safe_error_class && (
-                          <>
-                            <span>·</span>
-                            <span style={{ color: '#DC2626' }}>Error: {item.safe_error_class}</span>
-                          </>
-                        )}
-                      </div>
-
-                      {item.started_at && (
-                        <span>{new Date(item.started_at).toLocaleTimeString()}</span>
-                      )}
-                    </div>
                   </article>
                 )
               })}

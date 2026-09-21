@@ -4,6 +4,17 @@ const run = { id: 'run-actual', project_id: 'project-1', snapshot_id: 'snap-1234
 const snapshot = { id: 'snap-1234567', project_id: 'project-1', repository_identity: 'fixture:partial-refunds-v1', source_type: 'seeded_fixture', requested_ref: 'main', resolved_commit_sha: 'aabbccddeeff', status: 'READY', files_indexed: 4, symbols_indexed: 12, ignored_files: 0, supported_languages: ['python', 'typescript'], created_at: '2026-09-21T00:00:00Z', updated_at: '2026-09-21T00:00:00Z' }
 
 async function mockApi(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('planproof:workspace-context:12345', JSON.stringify({
+      repositoryId: 'project-1',
+      repositoryFullName: 'Partial Refund Demo',
+      ref: 'main',
+      snapshotId: 'snap-1234567',
+      commitSha: 'aabbccddeeff',
+      snapshotStatus: 'READY',
+      dataScope: 'DEMO'
+    }))
+  })
   await page.route('**/health/ready', route => route.fulfill({ status: 200 }))
   await page.route('**/v1/auth/session', route => route.fulfill({ json: { connected: true, account_login: 'test-user', installation_id: 12345 } }))
   await page.route('**/v1/workspace/projects', route => route.fulfill({ json: [{ id: 'project-1', name: 'Partial Refund Demo', owner_id: 'test-user', repository_source_type: 'seeded_fixture', fixture_id: 'partial-refunds-v1', created_at: '2026-09-21T00:00:00Z' }] }))

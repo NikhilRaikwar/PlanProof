@@ -25,6 +25,7 @@ interface WorkspaceContextType {
   loading: boolean
   error: string | null
   selectRepository: (project: Project, snapshot?: Snapshot | null) => void
+  clearActiveRepository: () => void
   setRunContext: (ctx: CanonicalWorkspaceContext | null) => void
   refreshProjects: () => Promise<void>
 }
@@ -122,28 +123,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           localStorage.removeItem(storageKey)
           setSelectedRepo(null)
         }
-      } else if (verifiedProjects.length === 1) {
-        // Automatically select if only one authenticated repository exists
-        const single = verifiedProjects[0]
-        let singleSnap: Snapshot | null = null
-        try {
-          const snaps = await api.snapshots(single.id)
-          singleSnap = snaps.find(s => s.status === 'READY') || snaps[0] || null
-        } catch {
-          // Ignore single snapshot error
-        }
-
-        setSelectedRepo({
-          repositoryId: single.id,
-          repositoryFullName: single.name,
-          ref: singleSnap?.requested_ref || single.requested_ref || 'main',
-          snapshotId: singleSnap?.id,
-          commitSha: singleSnap?.resolved_commit_sha || undefined,
-          snapshotStatus: singleSnap?.status,
-          githubRepositoryId: single.github_repository_id,
-          githubInstallationId: single.github_installation_id,
-          dataScope: single.data_scope || 'USER',
-        })
       } else {
         setSelectedRepo(null)
       }
@@ -182,6 +161,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     [session]
   )
 
+  const clearActiveRepository = useCallback(() => {
+    setSelectedRepo(null)
+    if (session?.installation_id && typeof window !== 'undefined') {
+      const storageKey = getStorageKey(session.installation_id)
+      localStorage.removeItem(storageKey)
+    }
+  }, [session])
+
   const setRunContext = useCallback((ctx: CanonicalWorkspaceContext | null) => {
     setRunContextState(ctx)
   }, [])
@@ -201,6 +188,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         loading,
         error,
         selectRepository,
+        clearActiveRepository,
         setRunContext,
         refreshProjects: loadWorkspace,
       }}

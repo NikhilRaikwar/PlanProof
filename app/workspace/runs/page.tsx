@@ -217,13 +217,24 @@ export default function RunsPage() {
                         </span>
                       </div>
 
-                      <strong style={{ fontSize: 14.5, color: '#0F172A', lineHeight: 1.3 }}>
+                      <strong 
+                        style={{ 
+                          fontSize: 14.5, 
+                          color: '#0F172A', 
+                          lineHeight: 1.35,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                        title={planTitle}
+                      >
                         {planTitle}
                       </strong>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11.5, color: '#64748B', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11.5, color: '#64748B', flexWrap: 'wrap' }}>
                         {ref && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600, color: '#475569' }}>
                             <GitBranch size={11} /> {ref}
                           </span>
                         )}
@@ -233,20 +244,24 @@ export default function RunsPage() {
                             {commit}
                           </span>
                         )}
-                        <span>snapshot {run.snapshot_id.slice(0, 7)}</span>
+                        <span>snap-{run.snapshot_id.slice(0, 7)}</span>
                         <span>·</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <FileText size={11} /> {run.evidence_count ?? 0} evidence items
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#475569' }}>
+                          <FileText size={11} /> <strong>{run.evidence_count ?? 0}</strong> evidence
                         </span>
                         <span>·</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <Wrench size={11} /> {run.tool_execution_count ?? run.tool_call_count ?? 0} tool executions
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#475569' }}>
+                          <Wrench size={11} /> <strong>{run.tool_execution_count ?? run.tool_call_count ?? 0}</strong> tools
                         </span>
                       </div>
                     </div>
 
                     <div>
-                      <Link href={`/workspace/runs/${run.id}`} className="btn-plan-action">
+                      <Link 
+                        href={`/workspace/runs/${run.id}`} 
+                        className="btn-plan-action"
+                        style={{ fontSize: 12, padding: '7px 14px' }}
+                      >
                         <span>View report</span>
                         <ArrowRight size={12} />
                       </Link>

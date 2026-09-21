@@ -330,19 +330,44 @@ export default function RunReportPage() {
         </div>
       )}
 
-      {/* Live Stream Telemetry Events */}
+      {/* Workflow Event Timeline */}
       {events.length > 0 && (
         <div className="card-panel-white">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <strong style={{ fontSize: 13, color: '#0F172A' }}>Workflow Event Telemetry</strong>
             <span style={{ fontSize: 11, color: '#64748B' }}>
-              {streamState === 'live' ? 'Connected to live event stream' : 'Reconnecting…'}
+              {terminalStatuses.has(run.status)
+                ? 'Workflow finalized'
+                : streamState === 'live'
+                ? 'Connected to live stream'
+                : 'Reconnecting…'}
             </span>
           </div>
-          <div style={{ maxHeight: 160, overflowY: 'auto', background: '#F8FAFC', padding: 10, borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
-            {events.map((event, idx) => (
-              <p key={idx} style={{ margin: '2px 0', color: '#334155' }}>{event}</p>
-            ))}
+          <div style={{ maxHeight: 160, overflowY: 'auto', background: '#F8FAFC', padding: 10, borderRadius: 6, fontSize: 12, display: 'grid', gap: 6 }}>
+            {events.map((event, idx) => {
+              // Parse clean summary if formatted as sequence:JSON or raw text
+              let displayEvent = event
+              try {
+                const colonIdx = event.indexOf(':')
+                if (colonIdx !== -1) {
+                  const payload = event.slice(colonIdx + 1)
+                  const parsed = JSON.parse(payload)
+                  if (parsed.summary) {
+                    displayEvent = parsed.summary
+                  } else if (parsed.event_type) {
+                    displayEvent = `${parsed.event_type}: ${parsed.summary || ''}`
+                  }
+                }
+              } catch {
+                // Keep clean raw string
+              }
+              return (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#334155' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#EA580C', flexShrink: 0 }} />
+                  <span>{displayEvent}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -382,6 +407,8 @@ export default function RunReportPage() {
 
               const isObVerified = obligation.status === 'VERIFIED'
               const isObDisproved = obligation.status === 'DISPROVED'
+              const isObInconclusive = obligation.status === 'INCONCLUSIVE'
+              const inconclusiveReason = obligation.proposal_metadata?.inconclusive_reason || 'No supporting repository evidence found within investigation budget'
 
               return (
                 <div 
@@ -390,7 +417,7 @@ export default function RunReportPage() {
                     border: '1px solid #E2E8F0', 
                     borderRadius: 8, 
                     padding: 16, 
-                    background: isObDisproved ? '#FFF5F5' : '#FFFFFF' 
+                    background: isObDisproved ? '#FFF5F5' : isObInconclusive ? '#FAFAFA' : '#FFFFFF' 
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
@@ -405,6 +432,11 @@ export default function RunReportPage() {
                         <span>·</span>
                         <span>Evidence items: <strong>{linkedEvidence.length}</strong></span>
                       </div>
+                      {isObInconclusive && (
+                        <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', fontStyle: 'italic' }}>
+                          Reason: {inconclusiveReason}
+                        </p>
+                      )}
                     </div>
 
                     <div>

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { 
   CheckCircle2, 
+  ChevronDown, 
+  ChevronRight, 
   Code2, 
   FileText, 
   FolderGit2, 
@@ -11,6 +13,8 @@ import {
   GitCommit, 
   Layers3, 
   ShieldAlert, 
+  ShieldCheck, 
+  Terminal, 
   Wrench, 
   XCircle 
 } from 'lucide-react'
@@ -25,6 +29,7 @@ export default function EvidencePage() {
   const [loadingRuns, setLoadingRuns] = useState(false)
   const [loadingEvidence, setLoadingEvidence] = useState(false)
   const [error, setError] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // 1. Fetch runs scoped to the selected repository
   useEffect(() => {
@@ -61,10 +66,17 @@ export default function EvidencePage() {
     setLoadingEvidence(true)
     setError('')
     void api.evidence(selectedRunId)
-      .then(data => setItems(data))
+      .then(data => {
+        setItems(data)
+        if (data.length > 0) {
+          setExpandedId(data[0].id)
+        }
+      })
       .catch(e => setError(e instanceof ApiError ? e.message : 'Could not load evidence.'))
       .finally(() => setLoadingEvidence(false))
   }, [selectedRunId])
+
+  const selectedRun = runs.find(r => r.id === selectedRunId)
 
   // Group evidence by obligation
   const groupedEvidence: Record<string, { statement: string; items: Evidence[] }> = {}
@@ -135,32 +147,36 @@ export default function EvidencePage() {
       ) : (
         <div style={{ display: 'grid', gap: 16 }}>
           {/* Run Selector Scoped to Selected Repository */}
-          <div className="card-panel-white" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-            <label htmlFor="evidence-run-select" style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
-              Verification Run:
-            </label>
-            <select
-              id="evidence-run-select"
-              className="custom-select-box"
-              style={{ maxWidth: 460 }}
-              value={selectedRunId}
-              onChange={e => setSelectedRunId(e.target.value)}
-            >
-              {runs.map(r => (
-                <option key={r.id} value={r.id}>
-                  run-{r.id.slice(0, 8)} · {r.status} · {r.plan_title ? r.plan_title.slice(0, 45) : new Date(r.created_at).toLocaleDateString()}
-                </option>
-              ))}
-            </select>
+          <div className="card-panel-white" style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flex: 1 }}>
+              <label htmlFor="evidence-run-select" style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap' }}>
+                Run selector:
+              </label>
+              <select
+                id="evidence-run-select"
+                className="custom-select-box"
+                style={{ maxWidth: 520, height: 38, fontSize: 12.5 }}
+                value={selectedRunId}
+                onChange={e => setSelectedRunId(e.target.value)}
+              >
+                {runs.map(r => (
+                  <option key={r.id} value={r.id}>
+                    run-{r.id.slice(0, 8)} · [{r.status}] · {r.plan_title ? r.plan_title.slice(0, 50) : new Date(r.created_at).toLocaleDateString()}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {selectedRunId && (
-              <Link href={`/workspace/runs/${selectedRunId}`} style={{ fontSize: 12, color: '#EA580C', fontWeight: 650, textDecoration: 'none' }}>
-                View full gate report →
+              <Link 
+                href={`/workspace/runs/${selectedRunId}`} 
+                style={{ fontSize: 12, color: '#EA580C', fontWeight: 650, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <span>View full gate report</span>
+                <span>→</span>
               </Link>
             )}
           </div>
-
-          {error && <div className="card-panel-white" style={{ color: '#B91C1C' }}>{error}</div>}
 
           {loadingEvidence ? (
             <div className="card-panel-white" style={{ textAlign: 'center', padding: 40, color: '#64748B' }}>
@@ -168,18 +184,26 @@ export default function EvidencePage() {
             </div>
           ) : items.length === 0 ? (
             <div className="card-panel-white" style={{ textAlign: 'center', padding: 48, color: '#64748B' }}>
-              No server-issued evidence has been produced for this verification run yet.
+              <FileText size={32} style={{ color: '#94A3B8', margin: '0 auto 10px' }} />
+              <strong style={{ display: 'block', color: '#0F172A', fontSize: 14, marginBottom: 4 }}>
+                No server-issued evidence was produced for this run.
+              </strong>
+              <p style={{ fontSize: 12.5, margin: 0 }}>
+                {selectedRun?.status === 'FAILED'
+                  ? 'The verification run encountered a failure before repository investigation could complete.'
+                  : 'The candidate plan claims did not yield matching source evidence within the investigation budget.'}
+              </p>
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 18 }}>
               {/* Evidence Grouped by Obligation */}
               {Object.entries(groupedEvidence).map(([obId, group]) => (
-                <div key={obId} className="card-panel-white" style={{ display: 'grid', gap: 12 }}>
+                <div key={obId} className="card-panel-white" style={{ display: 'grid', gap: 14, padding: 18 }}>
                   <div style={{ borderBottom: '1px solid #F1F5F9', paddingBottom: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748B' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748B', letterSpacing: '0.04em' }}>
                       Associated Proof Obligation
                     </span>
-                    <h3 style={{ fontSize: 14.5, color: '#0F172A', margin: '4px 0 0', fontWeight: 700 }}>
+                    <h3 style={{ fontSize: 14.5, color: '#0F172A', margin: '4px 0 0', fontWeight: 700, lineHeight: 1.35 }}>
                       {group.statement}
                     </h3>
                   </div>
@@ -187,79 +211,106 @@ export default function EvidencePage() {
                   <div style={{ display: 'grid', gap: 10 }}>
                     {group.items.map(ev => {
                       const isContradiction = ev.relationship === 'CONTRADICTS'
+                      const isExpanded = expandedId === ev.id
+
                       return (
                         <article 
                           key={ev.id} 
                           style={{ 
-                            padding: 14, 
                             borderRadius: 8, 
                             background: isContradiction ? '#FEF2F2' : '#F8FAFC', 
                             border: `1px solid ${isContradiction ? '#FECACA' : '#E2E8F0'}`,
-                            display: 'grid',
-                            gap: 8,
+                            overflow: 'hidden',
+                            transition: 'all 0.15s ease',
                           }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                            <strong style={{ fontSize: 13, color: '#0F172A', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <FileText size={14} color="#EA580C" />
-                              {ev.path || 'Repository fact'}{ev.start_line ? `:${ev.start_line}-${ev.end_line}` : ''}
-                            </strong>
+                          {/* Card Header / In-Place Toggle */}
+                          <div 
+                            onClick={() => setExpandedId(isExpanded ? null : ev.id)}
+                            style={{ 
+                              padding: '12px 16px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              gap: 10,
+                              userSelect: 'none',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {isExpanded ? <ChevronDown size={15} color="#64748B" /> : <ChevronRight size={15} color="#64748B" />}
+                              <FileText size={15} color="#EA580C" />
+                              <strong style={{ fontSize: 13, color: '#0F172A', fontFamily: 'var(--font-mono)' }}>
+                                {ev.path || 'Repository fact'}{ev.start_line ? `:${ev.start_line}-${ev.end_line}` : ''}
+                              </strong>
+                            </div>
 
-                            <span 
-                              className="badge-pill-base" 
-                              style={{ 
-                                fontSize: 10.5, 
-                                background: isContradiction ? '#FEE2E2' : '#DCFCE7', 
-                                color: isContradiction ? '#991B1B' : '#166534',
-                                borderColor: isContradiction ? '#FCA5A5' : '#86EFAC',
-                              }}
-                            >
-                              {isContradiction ? 'Contradicts claim' : 'Supports claim'}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span 
+                                className="badge-pill-base" 
+                                style={{ 
+                                  fontSize: 10.5, 
+                                  background: isContradiction ? '#FEE2E2' : '#DCFCE7', 
+                                  color: isContradiction ? '#991B1B' : '#166534',
+                                  borderColor: isContradiction ? '#FCA5A5' : '#86EFAC',
+                                }}
+                              >
+                                {isContradiction ? 'Contradicts claim' : 'Supports claim'}
+                              </span>
+                              <span style={{ fontSize: 11, color: '#94A3B8' }}>
+                                {isExpanded ? 'Collapse' : 'Inspect details'}
+                              </span>
+                            </div>
                           </div>
 
-                          <p style={{ fontSize: 12.5, color: '#334155', margin: 0, lineHeight: 1.4 }}>
-                            {ev.safe_fact_summary || ev.summary}
-                          </p>
+                          {/* Expanded In-Place Details */}
+                          {isExpanded && (
+                            <div style={{ padding: '0 16px 16px', display: 'grid', gap: 12, borderTop: `1px solid ${isContradiction ? '#FEE2E2' : '#E2E8F0'}`, paddingTop: 12 }}>
+                              <p style={{ fontSize: 13, color: '#334155', margin: 0, lineHeight: 1.45 }}>
+                                {ev.safe_fact_summary || ev.summary}
+                              </p>
 
-                          {ev.snippet && (
-                            <pre 
-                              style={{ 
-                                margin: 0, 
-                                padding: 10, 
-                                background: '#FFFFFF', 
-                                border: '1px solid #E2E8F0', 
-                                borderRadius: 6, 
-                                fontFamily: 'var(--font-mono)', 
-                                fontSize: 11.5, 
-                                color: '#0F172A',
-                                overflowX: 'auto',
-                                lineHeight: 1.4,
-                              }}
-                            >
-                              {ev.snippet}
-                            </pre>
+                              {ev.snippet && (
+                                <div style={{ display: 'grid', gap: 4 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                                    Snapshot Source Snippet (Immutable)
+                                  </span>
+                                  <pre 
+                                    style={{ 
+                                      margin: 0, 
+                                      padding: '12px 14px', 
+                                      background: '#FFFFFF', 
+                                      border: '1px solid #CBD5E1', 
+                                      borderRadius: 6, 
+                                      fontFamily: 'var(--font-mono)', 
+                                      fontSize: 12, 
+                                      color: '#0F172A',
+                                      overflowX: 'auto',
+                                      lineHeight: 1.45,
+                                    }}
+                                  >
+                                    {ev.snippet}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {/* Immutable Provenance Metadata */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#64748B', flexWrap: 'wrap', background: '#FFFFFF', padding: '8px 12px', borderRadius: 6, border: '1px solid #E2E8F0' }}>
+                                <span>Evidence ID: <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{ev.id}</code></span>
+                                <span>·</span>
+                                <span>Snapshot: <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{ev.snapshot_id.slice(0, 7)}</code></span>
+                                <span>·</span>
+                                <span>Source Tool: <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{ev.source_tool_run_id.slice(0, 8)}</code></span>
+                                {ev.content_hash && (
+                                  <>
+                                    <span>·</span>
+                                    <span>Content Hash: <code style={{ fontFamily: 'var(--font-mono)', color: '#0F172A' }}>{ev.content_hash.slice(0, 16)}</code></span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
                           )}
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#94A3B8', flexWrap: 'wrap' }}>
-                            <span>Evidence ID: <code style={{ fontFamily: 'var(--font-mono)' }}>{ev.id.slice(0, 10)}</code></span>
-                            <span>·</span>
-                            <span>Snapshot: <code style={{ fontFamily: 'var(--font-mono)' }}>{ev.snapshot_id.slice(0, 7)}</code></span>
-                            <span>·</span>
-                            <span>Source tool: <code style={{ fontFamily: 'var(--font-mono)' }}>{ev.source_tool_run_id.slice(0, 8)}</code></span>
-                            {ev.content_hash && (
-                              <>
-                                <span>·</span>
-                                <span>Hash: <code style={{ fontFamily: 'var(--font-mono)' }}>{ev.content_hash.slice(0, 12)}</code></span>
-                              </>
-                            )}
-                            {ev.created_at && (
-                              <>
-                                <span>·</span>
-                                <span>{new Date(ev.created_at).toLocaleTimeString()}</span>
-                              </>
-                            )}
-                          </div>
                         </article>
                       )
                     })}
@@ -269,7 +320,7 @@ export default function EvidencePage() {
 
               {/* Unassociated Items if any */}
               {unassociatedItems.length > 0 && (
-                <div className="card-panel-white" style={{ display: 'grid', gap: 12 }}>
+                <div className="card-panel-white" style={{ display: 'grid', gap: 12, padding: 18 }}>
                   <h3 style={{ fontSize: 14.5, color: '#0F172A', margin: 0 }}>
                     Additional Snapshot Evidence ({unassociatedItems.length})
                   </h3>

@@ -104,6 +104,7 @@ class ProofObligation(BaseModel):
 
 class ModelCall(BaseModel):
     id: str = Field(default_factory=new_id)
+    run_id: str | None = None
     provider: str
     model: str
     request_schema_version: str

@@ -73,7 +73,6 @@ export default function NewVerificationPage() {
         }
         if (chosen) {
           setSelectedSnapshotId(chosen.snapshot.id)
-          selectRepository(chosen.project, chosen.snapshot)
         }
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not load repository snapshots.')
@@ -182,14 +181,7 @@ export default function NewVerificationPage() {
                 id="target-snapshot"
                 className="custom-select-box"
                 value={selectedSnapshotId}
-                onChange={e => {
-                  const newId = e.target.value
-                  setSelectedSnapshotId(newId)
-                  const found = rows.find(r => r.snapshot.id === newId)
-                  if (found) {
-                    selectRepository(found.project, found.snapshot)
-                  }
-                }}
+                onChange={e => setSelectedSnapshotId(e.target.value)}
               >
                 {rows.map(({ project, snapshot }) => {
                   const isDemo = project.repository_source_type === 'seeded_fixture'
@@ -326,7 +318,7 @@ Example plan statements:
                   <span style={{ width: 22, height: 22, borderRadius: 6, background: '#FFF1EB', color: '#EA580C', fontWeight: 800, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: 11 }}>2</span>
                   <div>
                     <strong style={{ color: '#0F172A', display: 'block' }}>Gather deterministic evidence</strong>
-                    <span>Bounded AST tools search repository files, line ranges, symbols, and schema definitions.</span>
+                    <span>Bounded deterministic repository tools inspect files, line ranges, symbols, and structured code evidence.</span>
                   </div>
                 </div>
 
@@ -334,7 +326,7 @@ Example plan statements:
                   <span style={{ width: 22, height: 22, borderRadius: 6, background: '#FFF1EB', color: '#EA580C', fontWeight: 800, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: 11 }}>3</span>
                   <div>
                     <strong style={{ color: '#0F172A', display: 'block' }}>Server-authoritative Plan Gate</strong>
-                    <span>Returns an immutable gate decision (<code>VERIFIED</code> or <code>BLOCKED</code>) before agents or engineers write code.</span>
+                    <span>Produces an evidence-backed Plan Gate result and safely escalates claims that cannot be resolved from repository evidence.</span>
                   </div>
                 </div>
               </div>

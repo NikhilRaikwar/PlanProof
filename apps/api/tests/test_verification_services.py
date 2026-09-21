@@ -123,8 +123,14 @@ class FakeGateway:
     def __init__(self, content):
         self.content = content
 
-    async def complete(self, request):
-        return SimpleNamespace(provider="mock", model="mock-model", content=self.content)
+    async def complete(self, request, run_id=None):
+        return SimpleNamespace(
+            provider="mock",
+            model="mock-model",
+            content=self.content,
+            prompt_tokens=10,
+            completion_tokens=5,
+        )
 
 
 class ObligationRepo:

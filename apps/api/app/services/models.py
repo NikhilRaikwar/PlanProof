@@ -33,7 +33,9 @@ class ModelResult(BaseModel):
 
 
 class ModelGateway(Protocol):
-    async def complete(self, request: ModelRequest) -> ModelResult: ...
+    async def complete(
+        self, request: ModelRequest, run_id: str | None = None
+    ) -> ModelResult: ...
 
 
 class ProviderGateway:
@@ -42,7 +44,9 @@ class ProviderGateway:
     ) -> None:
         self.settings, self.repository = settings, repository
 
-    async def complete(self, request: ModelRequest) -> ModelResult:
+    async def complete(
+        self, request: ModelRequest, run_id: str | None = None
+    ) -> ModelResult:
         try:
             result = await self._attempt(
                 "openrouter",
@@ -63,6 +67,7 @@ class ProviderGateway:
         if self.repository:
             await self.repository.create_model_call(
                 ModelCall(
+                    run_id=run_id,
                     provider=result.provider,
                     model=result.model,
                     request_schema_version=request.schema_version,
