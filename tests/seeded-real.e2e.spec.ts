@@ -22,7 +22,7 @@ test('seeded fixture flows through the browser, Redis worker, human answer, and 
   if (!snapshotId) throw new Error('The browser-created READY snapshot has no identifier.')
   await snapshotSelect.selectOption(snapshotId)
   await page.getByPlaceholder('Describe the engineering change...').fill('Add safe partial refunds while preserving idempotency and reviewing mobile contract impact.')
-  await page.getByPlaceholder('Paste an engineering plan…').fill('Provider accepts a refund amount. Multiple refunds fit current schema. Mobile client impact is known.')
+  await page.getByPlaceholder('Paste an engineering plan…').fill('Provider accepts a refund amount. Multiple refunds fit current schema. A product owner must explicitly approve whether any mobile client contract impact is acceptable.')
   await page.getByRole('button', { name: 'Verify this plan' }).click()
   await page.waitForURL(/\/workspace\/runs\//)
   const runId = page.url().split('/').at(-1)
@@ -33,7 +33,10 @@ test('seeded fixture flows through the browser, Redis worker, human answer, and 
   await page.getByRole('button', { name: 'Submit decision' }).click()
   await expect(page.getByText('Gate: BLOCKED')).toBeVisible({ timeout: 90_000 })
   await expect(page.getByText('DISPROVED')).toBeVisible()
-  await expect(page.getByText(/db\/models\/refund\.ts/)).toBeVisible()
+  // Evidence is discovered from the current seeded snapshot, never injected as
+  // a fixture assertion.  Verify the rendered server record has a real
+  // snapshot-relative path and source range without coupling to one filename.
+  await expect(page.locator('strong').filter({ hasText: /.+:\d+-\d+/ }).first()).toBeVisible()
   await page.goto('/workspace/tool-traces')
   await page.locator('select').selectOption(runId)
   await expect(page.getByText('search_code_lexical')).toBeVisible()

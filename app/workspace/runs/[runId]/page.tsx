@@ -18,6 +18,14 @@ export default function RunReportPage() {
   const [error, setError] = useState('')
   const load = async () => { try { const [p, o, e] = await Promise.all([api.run(runId), api.obligations(runId), api.evidence(runId)]); setProjection(p); setObligations(o); setEvidence(e) } catch (x) { setError(x instanceof ApiError ? x.message : 'Could not load run report.') } }
   useEffect(() => { void load() }, [runId])
+  // SSE delivers progress eagerly; this small persisted-projection refresh is
+  // the recovery path for a completed/reconnected stream.  It never simulates
+  // verification and stops for every authoritative terminal gate.
+  useEffect(() => {
+    if (!projection || terminal.has(projection.run.status)) return
+    const timer = window.setTimeout(() => { void load() }, 2_000)
+    return () => window.clearTimeout(timer)
+  }, [projection, runId])
   useEffect(() => {
     if (!projection || terminal.has(projection.run.status)) return
     const source = new EventSource(api.eventsUrl(runId))
