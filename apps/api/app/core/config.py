@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
     github_app_private_key: SecretStr | None = None
     github_callback_url: AnyHttpUrl | None = None
     session_secret: SecretStr | None = None
-    session_cookie_secure: bool = True
+    session_cookie_secure: bool = False
 
     verification_max_iterations: int = Field(default=4, ge=1, le=20)
     verification_max_tool_calls: int = Field(default=6, ge=1, le=30)
@@ -58,10 +59,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_production_database(self) -> Settings:
-        if self.planproof_env == "production" and self.mongodb_uri is None:
-            raise ValueError("MONGODB_URI is required in production")
-        if self.planproof_env == "production" and self.redis_url is None:
-            raise ValueError("REDIS_URL is required in production")
+        if self.planproof_env == "production":
+            self.session_cookie_secure = True
+            if self.mongodb_uri is None:
+                raise ValueError("MONGODB_URI is required in production")
+            if self.redis_url is None:
+                raise ValueError("REDIS_URL is required in production")
         return self
 
     @field_validator("planproof_web_origins")
@@ -88,6 +91,21 @@ class Settings(BaseSettings):
             and self.github_app_private_key
             and self.session_secret
         )
+
+    @property
+    def github_private_key_pem(self) -> str | None:
+        if not self.github_app_private_key:
+            return None
+        val = self.github_app_private_key.get_secret_value().strip()
+        try:
+            p = Path(val)
+            if p.exists() and p.is_file():
+                return p.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+        if "\\n" in val and "\n" not in val:
+            val = val.replace("\\n", "\n")
+        return val
 
     @property
     def web_origins(self) -> list[str]:

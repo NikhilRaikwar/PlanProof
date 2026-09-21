@@ -63,6 +63,9 @@ class GitHubAppClient:
     def _app_jwt(self) -> str:
         if not self.settings.github_app_is_configured:
             raise RuntimeError("GitHub App is not configured")
+        pem = self.settings.github_private_key_pem
+        if not pem:
+            raise RuntimeError("GitHub App private key is not configured")
         now = datetime.now(UTC)
         return jwt.encode(
             {
@@ -70,7 +73,7 @@ class GitHubAppClient:
                 "exp": int((now + timedelta(minutes=9)).timestamp()),
                 "iss": self.settings.github_app_id,
             },
-            self.settings.github_app_private_key.get_secret_value(),
+            pem,
             algorithm="RS256",
         )
 
@@ -207,14 +210,17 @@ async def connect_github(
 @router.get("/auth/github/callback")
 async def github_callback(
     installation_id: int,
-    state: str,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    state: str | None = None,
+    code: str | None = None,
+    setup_action: str | None = None,
     planproof_github_state: Annotated[str | None, Cookie()] = None,
 ):
-    expected = _validate_signed(planproof_github_state, settings)
-    if not expected or not hmac.compare_digest(expected, state):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid GitHub connection state")
+    if state is not None:
+        expected = _validate_signed(planproof_github_state, settings)
+        if not expected or not hmac.compare_digest(expected, state):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid GitHub connection state")
     try:
         installation = await _client(settings).verify_installation(installation_id)
     except RuntimeError as exc:
