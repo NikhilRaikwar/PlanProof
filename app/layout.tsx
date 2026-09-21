@@ -2,63 +2,55 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://planproof-web-lfrrer4z6q-el.a.run.app'
+
 export const metadata: Metadata = {
-  title: 'PlanProof — Ideas to Verified Outcomes | Confidence Before Code',
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: 'PlanProof — Verify Engineering Plans Before Agents Build',
+    template: '%s | PlanProof',
+  },
   description:
-    'Evidence-bound verification for AI-native engineering plans. PlanProof pressure-tests assumptions against your real codebase, AST structures, and dependency graphs before coding agents execute.',
-  keywords: [
-    'PlanProof',
-    'plan verification',
-    'AI code verification',
-    'software architecture',
-    'AST analysis',
-    'dependency graphs',
-    'codebase evidence',
-    'automated gating',
-    'developer tools',
-    'coding agents',
-    'pre-flight verification',
-    'engineering plans',
-  ],
-  authors: [{ name: 'PlanProof' }],
-  creator: 'PlanProof',
-  publisher: 'PlanProof',
+    'PlanProof verifies AI-generated engineering plans against real codebase snapshots using deterministic evidence, bounded agent workflows, human-in-the-loop decisions, and production-grade evals.',
   applicationName: 'PlanProof',
-  metadataBase: new URL('https://planproof.dev'),
+  authors: [{ name: 'Nikhil Raikwar', url: 'https://github.com/NikhilRaikwar' }],
+  creator: 'Nikhil Raikwar',
+  publisher: 'PlanProof',
+  category: 'Developer Tools',
+  alternates: {
+    canonical: '/',
+  },
   openGraph: {
-    title: 'PlanProof — Ideas to Verified Outcomes | Confidence Before Code',
-    description:
-      'Evidence-bound verification for AI-native engineering plans. Test critical assumptions against real codebase evidence before building.',
-    url: 'https://planproof.dev',
+    type: 'website',
     siteName: 'PlanProof',
+    title: 'PlanProof — Verify Engineering Plans Before Agents Build',
+    description:
+      'Verify the plan before agents build it. PlanProof checks AI-generated engineering plans against real repository evidence before implementation starts.',
+    url: '/',
+    locale: 'en_US',
     images: [
       {
-        url: '/logo.png',
-        width: 1024,
-        height: 1024,
-        alt: 'PlanProof — Ideas to Verified Outcomes',
+        url: '/banner.png',
+        width: 1200,
+        height: 630,
+        alt: 'PlanProof — Verify the plan before agents build it.',
       },
     ],
-    locale: 'en_US',
-    type: 'website',
   },
   twitter: {
-    card: 'summary',
-    title: 'PlanProof — Ideas to Verified Outcomes',
+    card: 'summary_large_image',
+    title: 'PlanProof — Verify the plan before agents build it.',
     description:
-      'Evidence-bound verification for AI-native engineering plans. Turn ambitious plans into verified steps.',
-    images: ['/logo.png'],
-    creator: '@planproof',
+      'Evidence-grounded verification for AI engineering plans before implementation begins.',
+    images: ['/banner.png'],
   },
   icons: {
     icon: [
-      {
-        url: '/logo.png',
-        type: 'image/png',
-      },
+      { url: '/favicon.ico' },
+      { url: '/icon.png', type: 'image/png' },
     ],
-    shortcut: '/logo.png',
-    apple: '/logo.png',
+    apple: [{ url: '/apple-icon.png' }],
   },
 }
 
@@ -75,8 +67,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <link rel="icon" href="/logo.png" type="image/png" />
-        <link rel="apple-touch-icon" href="/logo.png" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="apple-touch-icon" href="/apple-icon.png" />
       </head>
       <body className="antialiased" suppressHydrationWarning>
         {children}

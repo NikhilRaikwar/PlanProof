@@ -1,0 +1,27 @@
+# PlanProof
+
+> Engineering plans are hypotheses. PlanProof tests them before agents build them.
+> The model proposes; deterministic code authorizes.
+
+PlanProof is a pre-flight verification system for AI-generated software engineering plans. It binds candidate implementation plans to immutable repository snapshots, extracts testable proof obligations, gathers code-backed evidence using bounded deterministic tools, escalates authority gaps to humans, and computes deterministic Plan Gates before code execution begins.
+
+## Core Capabilities
+- Pre-flight plan verification against real Git commit snapshots.
+- Cryptographically verified server-issued evidence authority (SHA-256 hashes, file line ranges).
+- Deterministic AST parsing (Python stdlib `ast.parse`) and lexical code search.
+- Bounded LangGraph agent state machine orchestration.
+- Human-in-the-loop (HITL) authority boundaries (`HUMAN_REQUIRED` pause & resumption).
+- Dual model provider redundancy (OpenRouter primary with automatic AIMLAPI fallback).
+- 27-case versioned evaluation harness with explicit regression gating.
+
+## Key Architectural Principles
+- **The model proposes; deterministic code authorizes**: Models generate structured claims and tool proposals; deterministic code validates schemas, executes sandboxed tools, mints evidence IDs, and evaluates final gate status.
+- **Single Orchestrator vs. Multi-Agent Swarms**: A single auditable LangGraph state machine ensures complete causal traceability, lower latency, and reliable checkpoint resumption.
+- **AST & Symbol Indexing vs. Premature Vector RAG**: Code verification requires exact syntactic definitions, parameter signatures, and cryptographic line provenance rather than fuzzy semantic similarity.
+
+## Public Resources & Documentation
+- Homepage: https://planproof-web-lfrrer4z6q-el.a.run.app
+- Architecture: https://github.com/NikhilRaikwar/PlanProof/blob/main/docs/ARCHITECTURE.md
+- Security: https://github.com/NikhilRaikwar/PlanProof/blob/main/docs/SECURITY.md
+- Evaluations: https://github.com/NikhilRaikwar/PlanProof/blob/main/docs/EVALUATIONS.md
+- GCP Deployment: https://github.com/NikhilRaikwar/PlanProof/blob/main/docs/DEPLOYMENT_GCP.md

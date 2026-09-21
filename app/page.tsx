@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
-import { motion, AnimatePresence, type Variants } from 'framer-motion'
+import { motion, type Variants } from 'framer-motion'
 import { 
   ArrowRight, 
   Check, 
@@ -11,13 +11,15 @@ import {
   Rocket,
   Search, 
   ShieldCheck, 
-  Sparkles, 
   Wrench,
   Code2,
-  Layers
+  ChevronDown,
+  HelpCircle,
+  Cpu
 } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
+import { StructuredData } from '@/components/structured-data'
 
 // Animation variants
 const fadeInUp: Variants = {
@@ -77,12 +79,10 @@ function PlayIcon({ className = "w-3 h-3", size = 11 }: { className?: string; si
 function HeroSection({ connected }: { connected: boolean }) {
   return (
     <section className="scene-hero scene-hero-centered" id="hero">
-      {/* Subtle warm ambient glows on empty sides */}
       <div className="hero-ambient-glow hero-glow-left" aria-hidden="true" />
       <div className="hero-ambient-glow hero-glow-right" aria-hidden="true" />
 
       <div className="scene-container relative">
-        {/* Centered Hero Copy & Actions */}
         <motion.div 
           className="hero-copy-centered"
           initial="hidden"
@@ -95,15 +95,15 @@ function HeroSection({ connected }: { connected: boolean }) {
             <span>FROM PLAN TO PROOF</span>
           </motion.div>
 
-          {/* Catch Headline */}
+          {/* Primary H1 */}
           <motion.h1 variants={fadeInUp} className="hero-title-centered">
             Verify the plan before<br />
             <span className="text-gradient-orange">agents build it.</span>
           </motion.h1>
 
-          {/* Lede / Subtitle */}
+          {/* Core Subtitle / Description */}
           <motion.p variants={fadeInUp} className="hero-lede-centered">
-            PlanProof checks engineering plans against your codebase, finds risky assumptions, and returns evidence-backed decisions before implementation begins.
+            PlanProof checks AI-generated engineering plans against your real codebase snapshots, finds risky assumptions, and returns evidence-backed decisions before implementation begins.
           </motion.p>
 
           {/* Action CTAs */}
@@ -124,7 +124,7 @@ function HeroSection({ connected }: { connected: boolean }) {
               <div className="play-icon-circle-light">
                 <PlayIcon className="w-2.5 h-2.5 fill-current ml-0.5" />
               </div>
-              <span>Watch demo</span>
+              <span>How it works</span>
             </a>
           </motion.div>
 
@@ -132,11 +132,11 @@ function HeroSection({ connected }: { connected: boolean }) {
           <motion.div variants={fadeInUp} className="hero-trust-note">
             <div className="trust-item">
               <Check className="trust-check-icon" />
-              <span>Free for public repositories</span>
+              <span>Read-only GitHub App permissions</span>
             </div>
             <div className="trust-item">
               <Check className="trust-check-icon" />
-              <span>Zero build time setup</span>
+              <span>The model proposes; deterministic code authorizes</span>
             </div>
           </motion.div>
         </motion.div>
@@ -153,28 +153,28 @@ const confidenceSteps = [
     number: '01',
     stepTag: 'ASSUMPTION PARSING',
     icon: FileText,
-    title: 'Extract obligations',
-    text: 'Turn plan assumptions into clear proof obligations that can be tested.',
-    chips: ['Assumptions', 'Proof Claims', 'Constraints'],
-    footer: 'Step 1 • Assumption Parsing'
+    title: 'Extract proof obligations',
+    text: 'Decompose plans into structured claims spanning database schemas, API contracts, dependencies, and business rules.',
+    chips: ['Schemas', 'API Contracts', 'Symbols', 'Dependencies'],
+    footer: 'Step 1 • Obligation Extraction'
   },
   {
     number: '02',
     stepTag: 'CODE GROUNDING',
     icon: Search,
-    title: 'Gather evidence',
-    text: 'Trace decisions back to repository facts, AST structures, and dependency graphs.',
-    chips: ['AST Facts', 'Call Graphs', 'Symbol Index'],
+    title: 'Gather code-backed evidence',
+    text: 'Inspect codebase facts using bounded AST parsing, lexical search, and cryptographic file line hashes.',
+    chips: ['AST Parsing', 'Lexical Search', 'SHA-256 Provenance'],
     footer: 'Step 2 • Code Grounding'
   },
   {
     number: '03',
     stepTag: 'AUTOMATED GATE',
     icon: ShieldCheck,
-    title: 'Gate the plan',
-    text: 'Verify, disprove, or surface what needs a human before a single line is written.',
-    chips: ['Verified Safe', 'Disproved', 'Human Escalation'],
-    footer: 'Step 3 • Automated Gate'
+    title: 'Compute the Plan Gate',
+    text: 'Authoritatively verify, disprove, or escalate authority gaps to human stakeholders before code generation starts.',
+    chips: ['VERIFIED', 'BLOCKED', 'HUMAN_REQUIRED'],
+    footer: 'Step 3 • Plan Gate Policy'
   }
 ]
 
@@ -182,7 +182,6 @@ function ConfidenceSection() {
   return (
     <section className="scene-section scene-confidence" id="proof">
       <div className="scene-container">
-        {/* Section Header */}
         <motion.div 
           className="section-header centered"
           initial="hidden"
@@ -199,12 +198,11 @@ function ConfidenceSection() {
             Confidence before code.
           </h2>
           <p className="scene-subtitle">
-            Turn ambitious plans into verifiable steps. PlanProof helps you pressure-test ideas 
-            against your actual codebase, so you avoid surprises and ship with confidence.
+            Turn ambitious plans into verifiable steps. PlanProof pressure-tests implementation ideas 
+            against your actual codebase so you eliminate blind spots and ship with confidence.
           </p>
         </motion.div>
 
-        {/* 3 Light Cards Grid */}
         <div className="confidence-cards-grid">
           {confidenceSteps.map((card, idx) => {
             const Icon = card.icon
@@ -259,41 +257,41 @@ const workflowSteps = [
     id: 'connect',
     num: '01',
     label: 'Connect',
-    sub: 'REPOSITORY',
+    sub: 'GITHUB REPOSITORY',
     icon: GithubIcon,
-    desc: 'Turn your GitHub repository (read-only).'
+    desc: 'Connect your GitHub repository with read-only permissions.'
   },
   {
     id: 'plan',
     num: '02',
-    label: 'Plan',
-    sub: 'UPLOAD REQUEST',
-    icon: FileText,
-    desc: 'Describe what you want to build or upload a plan.'
+    label: 'Snapshot',
+    sub: 'IMMUTABLE SHA',
+    icon: GitBranch,
+    desc: 'Resolve target branch to an exact, immutable commit SHA.'
   },
   {
     id: 'trace',
     num: '03',
-    label: 'Trace',
-    sub: 'CODEBASE PLANS',
-    icon: GitBranch,
-    desc: 'PlanProof generates a plan with clear assumptions.'
+    label: 'Extract',
+    sub: 'PROOF OBLIGATIONS',
+    icon: FileText,
+    desc: 'Decompose the proposed change into testable claims.'
   },
   {
     id: 'check',
     num: '04',
-    label: 'Check',
-    sub: 'EVIDENCE',
+    label: 'Investigate',
+    sub: 'BOUNDED EVIDENCE',
     icon: Search,
-    desc: 'We trace each claim to your real codebase facts.'
+    desc: 'Gather code facts via deterministic AST and lexical tools.'
   },
   {
     id: 'decide',
     num: '05',
-    label: 'Decide',
-    sub: 'GREEN OR RED LIGHT',
+    label: 'Gate',
+    sub: 'PLAN GATE VERDICT',
     icon: ShieldCheck,
-    desc: "See what's verified, disproved, or needs a human."
+    desc: 'Compute VERIFIED, BLOCKED, or HUMAN_REQUIRED verdict.'
   }
 ]
 
@@ -303,7 +301,6 @@ function WorkflowSection() {
   return (
     <section className="scene-section scene-workflow" id="how-it-works">
       <div className="scene-container">
-        {/* Section Header */}
         <motion.div 
           className="section-header centered"
           initial="hidden"
@@ -320,11 +317,10 @@ function WorkflowSection() {
             A simple <span className="text-gradient-orange">verification</span> flow.
           </h2>
           <p className="scene-subtitle">
-            From code to confident decisions, in five steps.
+            From raw engineering intent to an authoritative Plan Gate in five deterministic steps.
           </p>
         </motion.div>
 
-        {/* 5-Step Pipeline */}
         <div className="workflow-centered-stage">
           <div className="diagram-stage">
             <div className="flow-interactive-track">
@@ -335,7 +331,6 @@ function WorkflowSection() {
 
                 return (
                   <div key={node.id} className="flow-step-item-wrap">
-                    {/* Node Item */}
                     <div 
                       className={`node-card-item ${isHovered ? 'node-highlight' : ''}`}
                       onMouseEnter={() => setHoveredNode(i)}
@@ -355,7 +350,6 @@ function WorkflowSection() {
                       </div>
                     </div>
 
-                    {/* Connecting Orange Wave Segment */}
                     {!isLast && (
                       <div className="flow-connector-segment">
                         <svg className="segment-svg" viewBox="0 0 100 36" fill="none" preserveAspectRatio="none">
@@ -393,7 +387,6 @@ function WorkflowSection() {
                           </circle>
                         </svg>
 
-                        {/* Mobile Stepper Connector Line */}
                         <div className="flow-mobile-connector">
                           <span className="flow-mobile-line" />
                           <span className="flow-mobile-dot" />
@@ -405,7 +398,6 @@ function WorkflowSection() {
               })}
             </div>
 
-            {/* Handwritten Tagline below stepper */}
             <motion.div 
               className="script-tagline"
               initial={{ opacity: 0, y: 10 }}
@@ -444,7 +436,7 @@ const connectedQuadrants = [
     icon: Code2,
     title: 'Repositories',
     desc: 'Your codebase, in context.',
-    tags: ['Code', 'Branches', 'Commits']
+    tags: ['Commit SHA', 'Branches', 'Snapshots']
   },
   {
     id: 'evidence',
@@ -452,15 +444,15 @@ const connectedQuadrants = [
     icon: Search,
     title: 'Evidence explorer',
     desc: 'Trace every decision to source.',
-    tags: ['Search', 'Correlate', 'Verify']
+    tags: ['SHA-256', 'Line Ranges', 'Provenance']
   },
   {
     id: 'traces',
     position: 'bottom-left',
     icon: Wrench,
     title: 'Tool traces',
-    desc: 'See what tools found, step by step.',
-    tags: ['Tools', 'Steps', 'Artifacts']
+    desc: 'Audited tool execution logs.',
+    tags: ['AST Parser', 'Lexical Search', 'Audit Trail']
   },
   {
     id: 'evals',
@@ -468,7 +460,7 @@ const connectedQuadrants = [
     icon: ShieldCheck,
     title: 'Evaluations',
     desc: 'Objective checks, not guesswork.',
-    tags: ['Tests', 'Checks', 'Confidence']
+    tags: ['27 Cases', 'Regression Gate', 'Fidelity']
   }
 ]
 
@@ -476,7 +468,6 @@ function ConnectedSystemSection() {
   return (
     <section className="scene-section scene-connected" id="why">
       <div className="scene-container">
-        {/* Section Header */}
         <motion.div 
           className="section-header centered"
           initial="hidden"
@@ -494,13 +485,11 @@ function ConnectedSystemSection() {
             <span className="text-gradient-orange">confident</span> plan verification.
           </h2>
           <p className="scene-subtitle">
-            PlanProof connects your code, tools, and evidence so every decision is grounded in reality.
+            PlanProof connects your code, tools, and evidence so every verification decision is grounded in reality.
           </p>
         </motion.div>
 
-        {/* Connected System Diagram */}
         <div className="connected-stage-wrap">
-          {/* Radial SVG Beziers connecting Center <-> 4 Cards */}
           <svg className="connected-svg-desktop" viewBox="0 0 980 480" fill="none">
             <defs>
               <linearGradient id="connOrangeTL" x1="50%" y1="50%" x2="25%" y2="20%">
@@ -521,7 +510,6 @@ function ConnectedSystemSection() {
               </linearGradient>
             </defs>
 
-            {/* Top-Left Path (Center Circle Boundary -> Repositories Card) */}
             <motion.path
               d="M 420.7 170.7 C 375 130, 345 85, 310 85"
               stroke="url(#connOrangeTL)"
@@ -531,11 +519,9 @@ function ConnectedSystemSection() {
               viewport={{ once: true, amount: 0.35 }}
               transition={{ duration: 1.1, ease: "easeInOut", delay: 0.2 }}
             />
-            {/* Top-Left Anchor Nodes */}
             <circle cx="420.7" cy="170.7" r="3" fill="#EA580C" />
             <circle cx="310" cy="85" r="3" fill="#EA580C" />
 
-            {/* Top-Right Path (Center Circle Boundary -> Evidence Explorer Card) */}
             <motion.path
               d="M 559.3 170.7 C 605 130, 635 85, 670 85"
               stroke="url(#connOrangeTR)"
@@ -545,11 +531,9 @@ function ConnectedSystemSection() {
               viewport={{ once: true, amount: 0.35 }}
               transition={{ duration: 1.1, ease: "easeInOut", delay: 0.2 }}
             />
-            {/* Top-Right Anchor Nodes */}
             <circle cx="559.3" cy="170.7" r="3" fill="#EA580C" />
             <circle cx="670" cy="85" r="3" fill="#EA580C" />
 
-            {/* Bottom-Left Path (Center Circle Boundary -> Tool Traces Card) */}
             <motion.path
               d="M 420.7 309.3 C 375 350, 345 395, 310 395"
               stroke="url(#connOrangeBL)"
@@ -559,11 +543,9 @@ function ConnectedSystemSection() {
               viewport={{ once: true, amount: 0.35 }}
               transition={{ duration: 1.1, ease: "easeInOut", delay: 0.2 }}
             />
-            {/* Bottom-Left Anchor Nodes */}
             <circle cx="420.7" cy="309.3" r="3" fill="#EA580C" />
             <circle cx="310" cy="395" r="3" fill="#EA580C" />
 
-            {/* Bottom-Right Path (Center Circle Boundary -> Evaluations Card) */}
             <motion.path
               d="M 559.3 309.3 C 605 350, 635 395, 670 395"
               stroke="url(#connOrangeBR)"
@@ -573,12 +555,10 @@ function ConnectedSystemSection() {
               viewport={{ once: true, amount: 0.35 }}
               transition={{ duration: 1.1, ease: "easeInOut", delay: 0.2 }}
             />
-            {/* Bottom-Right Anchor Nodes */}
             <circle cx="559.3" cy="309.3" r="3" fill="#EA580C" />
             <circle cx="670" cy="395" r="3" fill="#EA580C" />
           </svg>
 
-          {/* Central PlanProof Clean Circular Hub */}
           <div className="connected-center-anchor">
             <motion.div 
               className="connected-center-node"
@@ -588,7 +568,7 @@ function ConnectedSystemSection() {
               <div className="core-cube-box">
                 <Image 
                   src="/logo.png" 
-                  alt="" 
+                  alt="PlanProof Mark" 
                   width={34} 
                   height={34} 
                   className="core-logo-img" 
@@ -602,7 +582,6 @@ function ConnectedSystemSection() {
             </motion.div>
           </div>
 
-          {/* 4 Corner Cards */}
           <div className="connected-cards-container">
             {connectedQuadrants.map((card, idx) => {
               const Icon = card.icon
@@ -646,13 +625,230 @@ function ConnectedSystemSection() {
 }
 
 // -------------------------------------------------------------
-// SCENE 5: FINAL CTA & LIGHT FOOTER
+// SCENE 5: BUILT FOR AGENTS (Citable Technical Summary)
+// -------------------------------------------------------------
+const citableFacts = [
+  {
+    title: 'Immutable Commit Binding',
+    text: 'Every verification run binds to an exact 40-character Git commit SHA, ensuring evidence never drifts with branch updates.',
+  },
+  {
+    title: 'Deterministic Repository Tools',
+    text: 'Python AST parsing (ast.parse) and lexical search tools inspect code structure and line ranges within strict containment boundaries.',
+  },
+  {
+    title: 'Server-Issued Evidence Authority',
+    text: 'Evidence IDs and cryptographic SHA-256 content hashes are minted exclusively by backend services upon successful tool execution.',
+  },
+  {
+    title: 'Bounded LangGraph Orchestration',
+    text: 'A single auditable state machine enforces hard limits on iterations, tool runs, model invocations, and context size.',
+  },
+  {
+    title: 'Human-in-the-Loop Resumption',
+    text: 'Workflow pauses with HUMAN_REQUIRED when code evidence lacks business authority, and resumes asynchronously upon human input.',
+  },
+  {
+    title: 'Durable System of Record',
+    text: 'MongoDB Atlas persists domain and run state across worker restarts, with Redis and Dramatiq coordinating async task queues.',
+  },
+]
+
+function BuiltForAgentsSection() {
+  return (
+    <section className="scene-section scene-technical" id="features" style={{ background: '#FAF8F5', borderTop: '1px solid #EFECE6', borderBottom: '1px solid #EFECE6', padding: '72px 0' }}>
+      <div className="scene-container">
+        <motion.div 
+          className="section-header centered"
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, amount: 0.35 }}
+          variants={fadeInUp}
+        >
+          <div className="scene-kicker">
+            <span className="kicker-line" />
+            <span className="kicker-badge">ARCHITECTURE & PRINCIPLES</span>
+            <span className="kicker-line" />
+          </div>
+          <h2 className="scene-title">
+            Built for <span className="text-gradient-orange">evidence-grounded</span> agent workflows.
+          </h2>
+          <p className="scene-subtitle">
+            Engineered from first principles: the model proposes, deterministic software authorizes.
+          </p>
+        </motion.div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginTop: 36 }}>
+          {citableFacts.map((fact, idx) => (
+            <motion.div
+              key={fact.title}
+              style={{
+                background: '#FFFFFF',
+                border: '1px solid #E2E8F0',
+                borderRadius: 12,
+                padding: '24px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+              }}
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ duration: 0.4, delay: idx * 0.08 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 6, background: '#FFF1EB', display: 'grid', placeItems: 'center', color: '#EA580C' }}>
+                  <Cpu size={15} />
+                </div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: '#0F172A', margin: 0 }}>
+                  {fact.title}
+                </h3>
+              </div>
+              <p style={{ fontSize: 13.5, lineHeight: 1.6, color: '#475569', margin: 0 }}>
+                {fact.text}
+              </p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// -------------------------------------------------------------
+// SCENE 6: FREQUENTLY ASKED QUESTIONS (AEO & Discovery)
+// -------------------------------------------------------------
+const faqs = [
+  {
+    q: 'What does PlanProof verify?',
+    a: 'PlanProof tests assumptions in AI-generated software engineering plans against real repository code. It validates whether symbols exist, schemas support proposed operations, API contracts match, and whether changes introduce cross-module side effects before coding agents begin execution.',
+  },
+  {
+    q: 'How is PlanProof different from an AI coding agent?',
+    a: 'Coding agents write, modify, and commit code based on a plan. PlanProof is a pre-flight verification system that tests the plan itself before any code is generated or altered, preventing agents from building on flawed foundations.',
+  },
+  {
+    q: 'Does PlanProof execute arbitrary repository code?',
+    a: 'No. PlanProof uses static AST parsers and bounded lexical search tools against immutable repository snapshots. It does not run arbitrary build scripts, test suites, or shell commands in P0.',
+  },
+  {
+    q: 'How does PlanProof prevent an LLM from inventing evidence?',
+    a: 'Evidence authority is owned entirely by the server. Evidence records and cryptographic SHA-256 hashes are minted only after audited tool runs succeed. The orchestrator rejects any model-quoted evidence that lacks server provenance.',
+  },
+  {
+    q: 'Why does PlanProof use human-in-the-loop (HITL) decisions?',
+    a: 'Codebases contain structural facts, but they cannot answer questions of human intent—such as undocumented product rules, cross-service client dependencies, or business policies. PlanProof escalates these claims to humans and pauses execution safely.',
+  },
+  {
+    q: 'Why does PlanProof use one orchestrator instead of a multi-agent swarm?',
+    a: 'A single bounded LangGraph state machine ensures complete causal traceability, predictable latency, lower token costs, and robust checkpoint resumption without non-deterministic multi-agent consensus loops.',
+  },
+  {
+    q: 'Does PlanProof use vector RAG?',
+    a: 'No. Code verification requires exact syntactic symbol definitions, type signatures, and cryptographic line provenance. Exact lexical and AST indexing provides deterministic truth without fuzzy semantic retrieval false positives.',
+  },
+  {
+    q: 'What repositories can PlanProof connect to?',
+    a: 'PlanProof connects to public and private repositories via the official GitHub App with least-privilege read-only permissions, as well as canonical public GitHub HTTPS repository URLs and deterministic test fixtures.',
+  },
+]
+
+function FaqSection() {
+  const [openIndex, setOpenIndex] = useState<number | null>(0)
+
+  return (
+    <section className="scene-section scene-faq" id="faq" style={{ padding: '72px 0' }}>
+      <div className="scene-container">
+        <motion.div 
+          className="section-header centered"
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, amount: 0.35 }}
+          variants={fadeInUp}
+        >
+          <div className="scene-kicker">
+            <span className="kicker-line" />
+            <span className="kicker-badge">FREQUENTLY ASKED QUESTIONS</span>
+            <span className="kicker-line" />
+          </div>
+          <h2 className="scene-title">
+            Answers & technical specifics.
+          </h2>
+          <p className="scene-subtitle">
+            Clear, honest answers about PlanProof architecture, authority boundaries, and execution.
+          </p>
+        </motion.div>
+
+        <div style={{ maxWidth: 840, margin: '36px auto 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {faqs.map((faq, idx) => {
+            const isOpen = openIndex === idx
+            return (
+              <motion.div
+                key={faq.q}
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: 10,
+                  overflow: 'hidden',
+                  transition: 'border-color 0.2s ease',
+                  borderColor: isOpen ? '#FDBA74' : '#E2E8F0',
+                }}
+                initial={{ opacity: 0, y: 12 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.2 }}
+                transition={{ duration: 0.4, delay: idx * 0.05 }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenIndex(isOpen ? null : idx)}
+                  style={{
+                    width: '100%',
+                    padding: '18px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    background: 'transparent',
+                    border: 'none',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <HelpCircle size={17} style={{ color: '#EA580C', flexShrink: 0 }} />
+                    <span style={{ fontSize: 15, fontWeight: 700, color: '#0F172A' }}>
+                      {faq.q}
+                    </span>
+                  </div>
+                  <ChevronDown
+                    size={16}
+                    style={{
+                      color: '#64748B',
+                      transform: isOpen ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.2s ease',
+                      flexShrink: 0,
+                    }}
+                  />
+                </button>
+                {isOpen && (
+                  <div style={{ padding: '0 20px 20px 47px', fontSize: 14, lineHeight: 1.65, color: '#475569' }}>
+                    {faq.a}
+                  </div>
+                )}
+              </motion.div>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// -------------------------------------------------------------
+// SCENE 7: FINAL CTA & LIGHT FOOTER
 // -------------------------------------------------------------
 function CtaSection({ connected }: { connected: boolean }) {
   return (
     <section className="scene-cta" id="cta">
       <div className="scene-container">
-        {/* Wide Warm Cream CTA Card */}
         <motion.div 
           className="cta-banner-card"
           initial="hidden"
@@ -660,7 +856,6 @@ function CtaSection({ connected }: { connected: boolean }) {
           viewport={{ once: true, amount: 0.4 }}
           variants={fadeInUp}
         >
-          {/* Decorative side sparkle rays */}
           <svg className="cta-rays-left hidden md:block" width="40" height="40" viewBox="0 0 40 40" fill="none">
             <path d="M 5 20 L 15 20 M 8 10 L 16 16 M 8 30 L 16 24" stroke="#FDBA74" strokeWidth="2" strokeLinecap="round" />
           </svg>
@@ -692,11 +887,9 @@ function CtaSection({ connected }: { connected: boolean }) {
         </motion.div>
       </div>
 
-      {/* Minimal Light Footer */}
       <footer className="site-footer">
         <div className="scene-container">
           <div className="footer-minimal-wrap">
-            {/* Brand Left */}
             <div className="footer-brand-side">
               <div className="footer-brand-header">
                 <div className="footer-logo-box">
@@ -710,7 +903,6 @@ function CtaSection({ connected }: { connected: boolean }) {
               </p>
             </div>
 
-            {/* GitHub Repo Showcase Right */}
             <div className="footer-repo-side">
               <a 
                 href="https://github.com/nikhilraikwar/planproof" 
@@ -732,7 +924,6 @@ function CtaSection({ connected }: { connected: boolean }) {
             </div>
           </div>
 
-          {/* Bottom Sub-Footer Bar */}
           <div className="footer-bottom-bar">
             <div className="footer-copyright">
               © 2026 PlanProof Inc. All rights reserved.
@@ -763,20 +954,22 @@ export default function LandingPage() {
 
   return (
     <div className="planproof-landing-root">
-      {/* Sticky / Fixed Glassmorphic Navigation Bar */}
+      <StructuredData />
+
       <header className="site-nav">
         <div className="nav-container">
           <Link href="/" className="nav-brand">
             <span className="nav-logo-box">
-              <Image src="/logo.png" alt="PlanProof Logo" width={26} height={26} className="nav-logo-img" priority />
+              <Image src="/logo.png" alt="PlanProof" width={26} height={26} className="nav-logo-img" priority />
             </span>
             <span className="nav-brand-title">PlanProof</span>
           </Link>
 
-          {/* Streamlined Menu Links */}
           <nav className="nav-menu">
             <a href="#how-it-works" className="nav-link">How it works</a>
             <a href="#why" className="nav-link">Why PlanProof</a>
+            <a href="#features" className="nav-link">Architecture</a>
+            <a href="#faq" className="nav-link">FAQ</a>
           </nav>
 
           <div className="nav-right">
@@ -800,12 +993,13 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* Main Viewport Content */}
       <main className="landing-scenes-wrapper">
         <HeroSection connected={connected} />
         <ConfidenceSection />
         <WorkflowSection />
         <ConnectedSystemSection />
+        <BuiltForAgentsSection />
+        <FaqSection />
         <CtaSection connected={connected} />
       </main>
     </div>
