@@ -1,15 +1,25 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppTopbar } from '@/components/app-topbar'
+import { api } from '@/lib/api'
 
 export default function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const router = useRouter()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  useEffect(() => {
+    void api.session()
+      .catch(() => {
+        router.push('/')
+      })
+  }, [router])
 
   return (
     <div className="app-shell">

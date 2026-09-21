@@ -14,13 +14,13 @@ export function AppTopbar({ onToggleMobile }: AppTopbarProps) {
   const pathname = usePathname()
 
   const getBreadcrumbTitle = () => {
-    if (pathname === '/workspace/new-verification' || pathname === '/workspace') return 'New verification'
+    if (pathname === '/workspace') return 'Dashboard'
+    if (pathname === '/workspace/new-verification') return 'New verification'
     if (pathname.startsWith('/workspace/runs/')) return 'Run report'
     if (pathname === '/workspace/runs') return 'Runs'
     if (pathname === '/workspace/repositories') return 'Repositories'
     if (pathname === '/workspace/evidence') return 'Evidence'
     if (pathname === '/workspace/tool-traces') return 'Tool traces'
-    if (pathname === '/workspace/evaluations') return 'Evaluations'
     return 'Workspace'
   }
 

@@ -5,7 +5,10 @@ const snapshot = { id: 'snap-1234567', project_id: 'project-1', repository_ident
 
 async function mockApi(page: Page) {
   await page.route('**/health/ready', route => route.fulfill({ status: 200 }))
-  await page.route('**/v1/projects', route => route.fulfill({ json: [{ id: 'project-1', name: 'Partial Refund Demo', repository_source_type: 'seeded_fixture', fixture_id: 'partial-refunds-v1', created_at: '2026-09-21T00:00:00Z' }] }))
+  await page.route('**/v1/auth/session', route => route.fulfill({ json: { connected: true, account_login: 'test-user', installation_id: 12345 } }))
+  await page.route('**/v1/workspace/projects', route => route.fulfill({ json: [{ id: 'project-1', name: 'Partial Refund Demo', owner_id: 'test-user', repository_source_type: 'seeded_fixture', fixture_id: 'partial-refunds-v1', created_at: '2026-09-21T00:00:00Z' }] }))
+  await page.route('**/v1/projects', route => route.fulfill({ json: [{ id: 'project-1', name: 'Partial Refund Demo', owner_id: 'test-user', repository_source_type: 'seeded_fixture', fixture_id: 'partial-refunds-v1', created_at: '2026-09-21T00:00:00Z' }] }))
+  await page.route('**/v1/github/repositories', route => route.fulfill({ json: [] }))
   await page.route('**/v1/projects/project-1/snapshots', route => route.fulfill({ json: [snapshot] }))
   await page.route('**/v1/verification-runs/run-actual/proof-obligations', route => route.fulfill({ json: [{ id: 'ob-disproved', statement: 'Multiple refunds fit current schema', category: 'SCHEMA', criticality: 'HIGH', status: 'DISPROVED', evidence_ids: [], counter_evidence_ids: ['ev-1'] }, { id: 'ob-human', statement: 'Mobile client impact is known', category: 'CROSS_SERVICE', criticality: 'HIGH', status: 'HUMAN_REQUIRED', evidence_ids: [], counter_evidence_ids: [] }] }))
   await page.route('**/v1/verification-runs/run-actual/evidence', route => route.fulfill({ json: [{ id: 'ev-1', snapshot_id: snapshot.id, source_tool_run_id: 'tool-1', evidence_type: 'source_range', path: 'db/models/refund.ts', start_line: 9, end_line: 9, content_hash: 'ab'.repeat(32), safe_fact_summary: 'Unique constraint found.', created_at: '2026-09-21T00:00:00Z' }] }))
@@ -15,10 +18,14 @@ async function mockApi(page: Page) {
 }
 
 test('repositories use empty and seeded API states without fixture fallback', async ({ page }) => {
+  await page.route('**/v1/auth/session', route => route.fulfill({ json: { connected: true, account_login: 'test-user', installation_id: 12345 } }))
   await page.route('**/v1/projects', route => route.fulfill({ json: [] }))
+  await page.route('**/v1/workspace/projects', route => route.fulfill({ json: [] }))
+  await page.route('**/v1/github/repositories', route => route.fulfill({ json: [] }))
   await page.goto('/workspace/repositories')
   await expect(page.getByText('No repositories connected')).toBeVisible()
   await page.unroute('**/v1/projects')
+  await page.unroute('**/v1/workspace/projects')
   await mockApi(page)
   await page.reload()
   await expect(page.getByText('Demo fixture')).toBeVisible()
@@ -41,6 +48,7 @@ test('runs, gate report, evidence, and trace are rendered from server records', 
 })
 
 test('API failure is shown rather than substituted with mock product data', async ({ page }) => {
+  await page.route('**/v1/auth/session', route => route.fulfill({ json: { connected: true, account_login: 'test-user', installation_id: 12345 } }))
   await page.route('**/v1/verification-runs', route => route.fulfill({ status: 503, json: { detail: 'unavailable' } }))
   await page.goto('/workspace/runs')
   await expect(page.getByText('unavailable')).toBeVisible()
@@ -52,4 +60,22 @@ test('internal quality remains an honest empty internal state', async ({ page })
   await page.goto('/internal/quality')
   await expect(page.getByText('No evaluation runs recorded yet.')).toBeVisible()
   await expect(page.getByText('248 runs')).not.toBeVisible()
+})
+
+test('workspace dashboard renders real data and session account', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/workspace')
+  await expect(page.getByText('Verification Dashboard')).toBeVisible()
+  await expect(page.getByText('@test-user')).toBeVisible()
+  await expect(page.getByText('Partial Refund Demo')).toBeVisible()
+})
+
+test('landing page shows Connect GitHub when disconnected and Open workspace when connected', async ({ page }) => {
+  await page.route('**/v1/auth/session', route => route.fulfill({ status: 401, json: { detail: 'unauthorized' } }))
+  await page.goto('/')
+  await expect(page.getByRole('link', { name: 'Connect GitHub' }).first()).toBeVisible()
+
+  await page.route('**/v1/auth/session', route => route.fulfill({ json: { connected: true, account_login: 'test-user', installation_id: 12345 } }))
+  await page.reload()
+  await expect(page.getByRole('link', { name: 'Open workspace' }).first()).toBeVisible()
 })
