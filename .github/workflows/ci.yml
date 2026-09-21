@@ -1,0 +1,55 @@
+name: PlanProof CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run secret:scan
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:ui
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+      - run: uv sync --frozen --all-groups
+      - run: uv run ruff check app tests
+      - run: uv run pytest -q
+
+  agent-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+      - run: uv sync --frozen --all-groups
+      # Deterministic evaluator and adversarial/workflow safety smoke only.
+      # Paid providers, Atlas, Memorystore, and deployment remain opt-in suites.
+      - run: uv run pytest tests/test_evaluation_harness.py tests/test_production_boundaries.py tests/test_workflow_failures.py -q

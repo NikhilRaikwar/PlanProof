@@ -3,12 +3,13 @@ export type ApiStatus = 'READY' | 'QUEUED' | 'VERIFYING' | 'HUMAN_WAIT' | 'BLOCK
 export type Project = { id: string; name: string; repository_source_type: 'public_github' | 'seeded_fixture'; repository_url?: string | null; fixture_id?: string | null; requested_ref?: string | null; created_at: string }
 export type Snapshot = { id: string; project_id: string; repository_identity: string; source_type: string; requested_ref?: string | null; resolved_commit_sha?: string | null; status: ApiStatus; files_indexed: number; symbols_indexed: number; ignored_files: number; supported_languages: string[]; created_at: string; updated_at: string }
 export type PlanVersion = { id: string; project_id: string; version: number; change_request: string; candidate_plan: string; parent_plan_version_id?: string | null; created_at: string }
-export type VerificationRun = { id: string; project_id: string; snapshot_id: string; plan_version_id: string; status: ApiStatus; created_at: string; updated_at: string }
+export type VerificationRun = { id: string; project_id: string; snapshot_id: string; plan_version_id: string; status: ApiStatus; created_at: string; updated_at: string; tool_call_count: number; model_call_count: number; prompt_tokens: number; completion_tokens: number; estimated_cost_usd: number }
 export type Obligation = { id: string; statement: string; category: string; criticality: string; status: string; evidence_ids: string[]; counter_evidence_ids: string[] }
 export type Evidence = { id: string; snapshot_id: string; source_tool_run_id: string; evidence_type: string; path?: string | null; start_line?: number | null; end_line?: number | null; content_hash?: string | null; safe_fact_summary: string; created_at: string }
 export type ToolRun = { id: string; tool_name: string; status: string; input_hash: string; result_count: number; safe_error_class?: string | null; duration_ms: number; started_at: string; finished_at?: string | null }
 export type HumanQuestion = { id: string; obligation_id: string; question: string; why_needed: string; authority_required: string; status: string }
 export type RunProjection = { run: VerificationRun; obligation_counts: Record<string, number>; human_questions: HumanQuestion[]; tool_runs: ToolRun[]; evidence_count: number }
+export type EvaluationRun = { eval_run_id: string; timestamp: string; sample_count: number; metrics: Record<string, number>; limitations: string[] }
 
 export class ApiError extends Error { constructor(public status: number, message: string) { super(message) } }
 const base = (process.env.NEXT_PUBLIC_PLANPROOF_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
@@ -39,5 +40,6 @@ export const api = {
   toolRuns: (id: string) => request<ToolRun[]>(`/verification-runs/${id}/tool-runs`),
   answer: (id: string, answer: string) => request<HumanQuestion>(`/human-questions/${id}/answers`, { method: 'POST', body: JSON.stringify({ answer, actor_id: 'local-session' }) }),
   amend: (id: string, candidate_plan: string) => request<PlanVersion>(`/plan-versions/${id}/amendments`, { method: 'POST', body: JSON.stringify({ candidate_plan }) }),
+  latestEvaluation: () => request<EvaluationRun>('/evaluations/latest'),
   eventsUrl: (id: string) => `${base}/v1/verification-runs/${id}/events`,
 }
