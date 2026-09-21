@@ -20,10 +20,18 @@ export default function RunReportPage() {
   useEffect(() => {
     if (!projection || terminal.has(projection.run.status)) return
     const source = new EventSource(api.eventsUrl(runId))
-    const receive = (event: MessageEvent) => setEvents(old => old.some(item => item.startsWith(`${event.lastEventId}:`)) ? old : [...old, `${event.lastEventId}:${event.data}`])
+    const receive = (event: MessageEvent) => {
+      setEvents(old => old.some(item => item.startsWith(`${event.lastEventId}:`)) ? old : [...old, `${event.lastEventId}:${event.data}`])
+      void load()
+    }
     eventTypes.forEach(type => source.addEventListener(type, receive))
     source.onerror = () => source.close()
     return () => source.close()
+  }, [projection, runId])
+  useEffect(() => {
+    if (!projection || terminal.has(projection.run.status)) return
+    const timer = window.setInterval(() => void load(), 2_000)
+    return () => window.clearInterval(timer)
   }, [projection, runId])
   const submit = async (id: string) => { try { await api.answer(id, answer); setAnswer(''); await load() } catch (e) { setError(e instanceof ApiError ? e.message : 'Could not submit answer.') } }
   if (error) return <div className="card-panel-white" style={{ color: '#B91C1C' }}>{error}</div>
