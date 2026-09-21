@@ -1,98 +1,101 @@
 # PlanProof
 
-> **Verify the plan before agents build it.**  
-> PlanProof checks candidate engineering plans against your codebase, identifies high-risk assumptions, and returns code-grounded proof obligations before implementation begins.
+> **Engineering plans are hypotheses. PlanProof tests them before agents build them.**
 
----
+PlanProof is pre-flight verification infrastructure for AI-generated engineering plans. It binds a candidate plan to an immutable repository snapshot, extracts testable proof obligations, gathers bounded repository evidence, and applies deterministic policy before allowing execution.
 
-## Overview
+The core rule is simple: **the model proposes; deterministic code authorizes.**
 
-PlanProof is an internal engineering platform designed to gate autonomous coding agents and engineers before code execution. By combining deterministic AST parsing, semantic symbol indexing, dependency call-graphs, and OpenAPI/schema validators, PlanProof ensures plans are safe, feasible, and contradiction-free.
+## What is implemented
 
+- Public GitHub repository ingestion without GitHub tokens for P0, plus an explicitly labelled seeded demo fixture.
+- Immutable repository snapshots, deterministic file hashes, source symbol indexing, and bounded snapshot-scoped tools.
+- Evidence that is server-issued and provenance-bound to a successful deterministic tool run.
+- Provider-neutral structured model gateway: OpenRouter primary, AIMLAPI availability fallback, bounded retries, and safe model-call metadata.
+- LangGraph-based bounded verification workflow with Redis/Dramatiq execution, MongoDB persistence, deterministic final gates, and human pause/resume.
+- API-backed Next.js workspace, live safe event display, evidence/tool trace inspection, human decision submission, and immutable plan amendments.
+- Versioned evaluation fixtures, explicit regression-policy helpers, security tests, container definitions, and CI checks.
+
+## Deliberate engineering choices
+
+PlanProof is not a coding agent, generic repository chatbot, or multi-agent swarm. A single explicit state machine is more auditable here: known facts are checked by deterministic validators before any model call, and adding agents would increase cost, coordination failures, and observability complexity without justified capability.
+
+It also intentionally does not use vector RAG, arbitrary code execution, unbounded reflection loops, model confidence as authority, private GitHub support, or a complete semantic call graph in the current release. These are tradeoffs, not hidden gaps: a bounded lexical/symbol index is safer and more explainable for the supported P0 workflow.
+
+## Architecture
+
+```text
+Next.js workspace
+  -> FastAPI /v1
+  -> MongoDB Atlas (projects, snapshots, plans, runs, evidence, audit)
+  -> Redis + Dramatiq (durable verification jobs)
+  -> LangGraph bounded orchestrator
+  -> deterministic repository tools + validators
+  -> OpenRouter primary / AIMLAPI fallback for structured proposals only
 ```
-Candidate Plan Submitted
-        ↓
-Proof Claims Extracted
-        ↓
-Repository Snapshot Pinned
-        ↓
-Code & Schema Evidence Gathered
-        ↓
-Obligations Verified / Disproved
-        ↓
-High-Risk Decisions Escalated to Human
-        ↓
-Plan Gated Before Implementation
-```
 
----
+Repository facts never come from an LLM. Models can extract ambiguous candidate-plan claims or propose one allowlisted next action; they cannot create evidence IDs, read the host filesystem, execute shell commands, mutate MongoDB, or set final verification status.
 
-## Core Features
+See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md), and [evaluation design](docs/EVALUATIONS.md).
 
-- **Marketing Experience**: Responsive landing page with interactive verification flow and confidence breakdowns.
-- **Verification Intake**: Supports pasting plans directly or uploading plan documents (`.md`, `.txt`, `.json`, `.yaml`).
-- **Plan Gate Reports**: Detailed verification status (`VERIFIED FOR EXECUTION` / `BLOCKED BEFORE EXECUTION`), proof obligations inspector, codebase counter-evidence, and one-click `Copy Agent Prompt`.
-- **Repository Indexing**: Connected GitHub repositories with pinned commit snapshots and AST readiness telemetry.
-- **Evidence Explorer**: Code-backed evidence viewer with line ranges, AST facts, and contract diffs.
-- **Tool Traces**: 6-step deterministic AST execution timeline (`claim_extraction`, `symbol_search`, `schema_probe`, `dependency_graph`, `openapi_scan`, `contradiction_check`).
-- **Internal Quality Benchmarks (`/internal/quality`)**: Offline reliability metrics, Catmull-Rom accuracy trend curves, evaluation suites, and latency/cost telemetry.
+## Product flow
 
----
+1. Add a public GitHub HTTPS repository or select the labelled demo fixture.
+2. Index an immutable READY snapshot.
+3. Submit a change request and candidate engineering plan.
+4. Create an immutable plan version and queue a verification run.
+5. Resolve proof obligations with bounded tools, authoritative evidence, policy, and human authority where code cannot decide.
+6. Receive a deterministic gate: `VERIFIED_FOR_EXECUTION`, `BLOCKED`, `HUMAN_DECISION_REQUIRED`, `INCONCLUSIVE`, or `FAILED`.
 
-## Architecture & Navigation
+## Local development
 
-### Normal User Navigation (`/workspace/*`)
-- **`BUILD`**:
-  - `New verification` (`/workspace/new-verification`)
-  - `Runs` (`/workspace/runs`)
-  - `Repositories` (`/workspace/repositories`)
-- **`VERIFY`**:
-  - `Evidence` (`/workspace/evidence`)
-  - `Tool traces` (`/workspace/tool-traces`)
+Prerequisites: Node 22+, Python 3.11–3.13, Docker (for local Redis), and a local ignored `.env` populated from `.env.example`. Never commit `.env`.
 
-### Internal Engineering Only (`/internal/*`)
-- `Quality Benchmarks` (`/internal/quality`)
-
----
-
-## Tech Stack
-
-- **Framework**: Next.js 16 (App Router)
-- **Language**: TypeScript
-- **Styling**: Vanilla CSS Design System with light cream palette & coral accents
-- **Icons**: Lucide React
-- **Animations**: Framer Motion
-
----
-
-## Getting Started
-
-### 1. Install Dependencies
 ```bash
-npm install
-# or
-pnpm install
+docker compose up redis
+cd apps/api
+uv sync --all-groups
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-### 2. Run Development Server
-```bash
-npm run dev
-# or
-pnpm dev
-```
-Open [http://localhost:3000](http://localhost:3000) to view the landing page, or [http://localhost:3000/workspace/new-verification](http://localhost:3000/workspace/new-verification) for the workspace.
+In another terminal, run `cd apps/api && uv run dramatiq app.workflow.worker`. For the UI, run `npm ci` then `npm run dev`.
 
-### 3. Production Build
+Local quality checks:
+
 ```bash
+npm run typecheck
 npm run build
-npm run start
+npm run test:ui
+cd apps/api && uv run ruff check app tests && uv run pytest -q
 ```
 
----
+Network/paid provider and Atlas checks are deliberately marked separately from deterministic tests.
 
-## License
+## Evaluation harness
 
-This project is licensed under the MIT License.  
-See [LICENSE](./LICENSE) for details.
+The `evals/cases/v1` set contains versioned test-only metadata spanning schema, idempotency, API, dependency, human-authority, provider-failure, prompt-injection, evidence-provenance, worker-retry, and budget-safety scenarios. Evaluation expectations never enter production workflow code.
 
-Copyright © 2026 Nikhil Raikwar.
+Metrics are produced only from observed evaluator outputs; when a metric cannot be substantiated, it is omitted rather than invented. A regression comparison accepts explicit caller-provided thresholds and can return `PASS`, `REGRESSION`, or `INSUFFICIENT_DATA`.
+
+## Deployment
+
+The production target is Google Cloud Run (Next.js UI and FastAPI), Cloud Run Worker Pools (Dramatiq), Artifact Registry, Secret Manager, Memorystore Redis, and MongoDB Atlas in `asia-south1` under `planproof-ai`.
+
+Deployment definitions and a runbook are in [docs/DEPLOYMENT_GCP.md](docs/DEPLOYMENT_GCP.md). The runbook keeps mutable deployment URLs out of source control; a production deployment is usable only after its live and dependency readiness checks succeed.
+
+## Honest limitations
+
+- Public GitHub HTTPS repositories only; no OAuth, GitHub App, or private repository access.
+- Python parsing is AST-backed for the supported subset. TypeScript/JavaScript extraction is lightweight and does not provide complete type resolution, call graphs, or semantic references.
+- Deterministic reference/dependency results are explicitly partial where the index is partial.
+- The project has deployment templates and production safeguards, but deployment status must be verified against the target cloud account.
+
+## Review path
+
+- [API and workflow implementation](apps/api/app)
+- [Versioned evaluation cases](evals/cases/v1)
+- [Security controls and threat boundaries](docs/SECURITY.md)
+- [GCP deployment runbook](docs/DEPLOYMENT_GCP.md)
+- [Five-minute product demonstration](docs/DEMO.md)
+
+MIT. Copyright © 2026 Nikhil Raikwar.

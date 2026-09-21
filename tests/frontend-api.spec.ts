@@ -48,6 +48,7 @@ test('API failure is shown rather than substituted with mock product data', asyn
 })
 
 test('internal quality remains an honest empty internal state', async ({ page }) => {
+  await page.route('**/v1/evaluations/latest', route => route.fulfill({ status: 404, json: { detail: 'no evaluation runs recorded' } }))
   await page.goto('/internal/quality')
   await expect(page.getByText('No evaluation runs recorded yet.')).toBeVisible()
   await expect(page.getByText('248 runs')).not.toBeVisible()

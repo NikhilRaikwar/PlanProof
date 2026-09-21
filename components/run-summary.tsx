@@ -4,20 +4,18 @@ import React from 'react'
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
 
 export interface RunSummaryBannerProps {
-  status: 'BLOCKED' | 'VERIFIED'
-  coverage: number
+  status: 'BLOCKED' | 'VERIFIED_FOR_EXECUTION' | 'HUMAN_DECISION_REQUIRED' | 'INCONCLUSIVE' | 'FAILED'
   disprovedCount: number
-  verifiedCount?: number
-  isHumanResolved?: boolean
+  verifiedCount: number
 }
 
 export function RunSummaryBanner({
   status,
-  coverage = 83,
-  disprovedCount = 2,
-  isHumanResolved = false
+  disprovedCount,
+  verifiedCount,
 }: RunSummaryBannerProps) {
-  const isBlocked = status === 'BLOCKED' && !isHumanResolved && disprovedCount > 0
+  const isBlocked = status === 'BLOCKED'
+  const label = status.replaceAll('_', ' ')
 
   return (
     <div style={{
@@ -55,23 +53,20 @@ export function RunSummaryBanner({
               background: isBlocked ? '#FEE2E2' : '#D1FAE5',
               color: isBlocked ? '#991B1B' : '#065F46'
             }}>
-              {isBlocked ? 'BLOCKED BEFORE EXECUTION' : 'VERIFIED / READY FOR AGENTS'}
+              {label}
             </span>
           </h2>
           <p style={{ fontSize: 12, color: '#475569', margin: '4px 0 0' }}>
             {isBlocked ? (
-              '2 critical obligations contradict codebase evidence. Review counter-evidence and apply remediations before implementation.'
+              `${disprovedCount} obligation${disprovedCount === 1 ? '' : 's'} contradict${disprovedCount === 1 ? 's' : ''} repository evidence. Review counter-evidence before implementation.`
             ) : (
-              'All critical obligations verified against codebase evidence. Safe for autonomous agent execution.'
+              `${verifiedCount} obligation${verifiedCount === 1 ? '' : 's'} are verified by the persisted backend policy.`
             )}
           </p>
         </div>
       </div>
 
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: 24, fontWeight: 850, color: '#0F172A', fontFamily: 'var(--font-mono)' }}>{coverage}%</div>
-        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 650 }}>Verification Coverage</div>
-      </div>
+      <div style={{ textAlign: 'right', fontSize: 12, color: '#64748B' }}>Verified: {verifiedCount}</div>
     </div>
   )
 }

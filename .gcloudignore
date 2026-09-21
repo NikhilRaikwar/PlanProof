@@ -1,0 +1,16 @@
+.gcloudignore
+.git
+.next/
+node_modules/
+apps/api/.venv/
+apps/api/.pytest_cache/
+apps/api/evaluation/
+apps/api/tests/
+**/__pycache__/
+*.py[cod]
+.env
+.env.*
+test-results/
+playwright-report/
+coverage/
+*.log

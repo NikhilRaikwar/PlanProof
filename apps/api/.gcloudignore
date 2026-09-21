@@ -1,0 +1,11 @@
+# Cloud Build needs only the API source and locked dependency metadata.
+.gcloudignore
+.venv/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.env
+.env.*
+tests/
+evaluation/

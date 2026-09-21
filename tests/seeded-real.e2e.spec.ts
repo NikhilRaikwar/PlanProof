@@ -13,7 +13,7 @@ test('seeded fixture flows through the browser, Redis worker, human answer, and 
   await page.goto('/workspace/new-verification')
   const snapshotSelect = page.locator('select').first()
   await expect(snapshotSelect.locator('option')).toHaveCount(await snapshotSelect.locator('option').count())
-  await snapshotSelect.selectOption({ label: /Browser Seeded Demo/ })
+  await snapshotSelect.selectOption({ label: 'Browser Seeded Demo' })
   await page.getByPlaceholder('Describe the engineering change...').fill('Add safe partial refunds while preserving idempotency and reviewing mobile contract impact.')
   await page.getByPlaceholder('Paste an engineering plan…').fill('Provider accepts a refund amount. Multiple refunds fit current schema. Mobile client impact is known.')
   await page.getByRole('button', { name: 'Verify this plan' }).click()
