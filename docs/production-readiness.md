@@ -10,8 +10,8 @@
 
 | Component | Target Resource | Status | Verification Evidence |
 | :--- | :--- | :--- | :--- |
-| **Web Service** | Cloud Run: `planproof-web` | **READY** | `https://planproof-web-530622821497.asia-south1.run.app` |
-| **API Service** | Cloud Run: `planproof-api` | **READY** | `https://planproof-api-530622821497.asia-south1.run.app` |
+| **Web Service** | Cloud Run: `planproof-web` | **READY** | `https://planproof-web-lfrrer4z6q-el.a.run.app` |
+| **API Service** | Cloud Run: `planproof-api` | **READY** | `https://planproof-api-lfrrer4z6q-el.a.run.app` |
 | **Health Probe** | `/health/ready` | **HEALTHY** | Returns `{"status":"ok","mongo":"ok","redis":"ok"}` |
 | **Database** | MongoDB Atlas (`planproofapp`) | **HEALTHY** | 14 collections with unique & compound indexes verified |
 | **Queue / Cache** | Memorystore / Redis | **HEALTHY** | Task delivery, rate limiting, and deduplication verified |

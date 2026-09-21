@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 110" width="100%" height="100%" fill="none">
+  <defs>
+    <!-- Background Card Gradient for Crisp GitHub Light/Dark Mode Contrast -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#0B1120" />
+      <stop offset="100%" stopColor="#020617" />
+    </linearGradient>
+    <linearGradient id="coralGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#FF6B4A" />
+      <stop offset="100%" stopColor="#EA580C" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stopColor="#EA580C" stopOpacity="0.4" />
+      <stop offset="50%" stopColor="#F97316" stopOpacity="0.1" />
+      <stop offset="100%" stopColor="#EA580C" stopOpacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Container Box with Rounded Corners and Subtle Border -->
+  <rect x="2" y="2" width="476" height="106" rx="16" fill="url(#bgGrad)" stroke="#1E293B" stroke-width="1.5" />
+  
+  <!-- Subtle Ambient Glow Accent -->
+  <path d="M 16 2 L 240 2" stroke="url(#glowGrad)" stroke-width="2.5" stroke-linecap="round" />
+
+  <!-- Logo Brand Mark (Shield + Proof Lattice Motif) -->
+  <g transform="translate(24, 23)">
+    <!-- Outer Shield/Badge with Coral Gradient -->
+    <rect x="0" y="0" width="64" height="64" rx="14" fill="url(#coralGrad)" />
+    
+    <!-- Subtle Inner Border Highlight -->
+    <rect x="2" y="2" width="60" height="60" rx="12" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1.5" />
+
+    <!-- Isometric Plan Proof Grid Lines -->
+    <path d="M 16 22 L 48 22" stroke="#FFF7ED" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.4" />
+    <path d="M 16 32 L 36 32" stroke="#FFF7ED" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.4" />
+    
+    <!-- Crisp Geometric Check / Proof Verification Node -->
+    <path d="M 22 43 L 31 51 L 46 33" stroke="#FFFFFF" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round" />
+    
+    <!-- Small Verification Dot Indicator -->
+    <circle cx="48" cy="18" r="3.5" fill="#FFF7ED" />
+  </g>
+
+  <!-- Typography: PlanProof Wordmark -->
+  <g transform="translate(104, 25)">
+    <!-- Primary Wordmark -->
+    <text x="0" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif" font-size="34" font-weight="800" letter-spacing="-0.5">
+      <tspan fill="#FFFFFF">Plan</tspan>
+      <tspan fill="#FF6B4A">Proof</tspan>
+    </text>
+
+    <!-- Beta / Engine Status Tag -->
+    <g transform="translate(162, 16)">
+      <rect x="0" y="0" width="48" height="20" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1" />
+      <text x="24" y="14" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" fill="#FDBA74" text-anchor="middle" letter-spacing="0.8">ENGINE</text>
+    </g>
+
+    <!-- Subtitle / Tagline -->
+    <text x="0" y="58" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif" font-size="12" font-weight="500" fill="#94A3B8" letter-spacing="0.2">
+      Pre-flight Verification Engine for AI Engineering Plans
+    </text>
+  </g>
+</svg>

@@ -2,7 +2,7 @@
 
 ## Trust model
 
-Repository URLs, filenames, source text, READMEs, model output, and human browser input are untrusted. PlanProof accepts only canonical public GitHub HTTPS repository URLs in P0 and materializes repositories in controlled temporary workspaces.
+Repository URLs, filenames, source text, READMEs, model output, and human browser input are untrusted. PlanProof connects via an official GitHub App with least-privilege read-only permissions (or canonical public GitHub HTTPS URLs) and materializes repositories in controlled temporary workspaces.
 
 The ingestion and tool layers enforce normalized snapshot-relative paths, reject traversal and absolute paths, exclude symlink escape/binary/oversized/generated content, and never allow model-proposed shell execution.
 
