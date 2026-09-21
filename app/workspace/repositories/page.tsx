@@ -17,12 +17,16 @@ import {
   RefreshCw, 
   Sparkles 
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { api, ApiError, GitHubRef, GitHubRepository, Project, Snapshot } from '@/lib/api'
 import { GithubIcon } from '@/components/repo-context-chip'
+import { useWorkspace } from '@/components/workspace-context'
 
 type Entry = { project: Project; snapshot?: Snapshot }
 
 export default function RepositoriesPage() {
+  const router = useRouter()
+  const { selectedRepo, selectRepository } = useWorkspace()
   const [items, setItems] = useState<Entry[]>([])
   const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([])
   const [repoRefs, setRepoRefs] = useState<Record<number, GitHubRef[]>>({})
@@ -382,13 +386,36 @@ export default function RepositoriesPage() {
                       </div>
 
                       {currentSnap.status === 'READY' && (
-                        <Link 
-                          href="/workspace/new-verification"
-                          style={{ color: '#EA580C', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const found = items.find(it => it.project.github_repository_id === repo.id)
+                            const proj = found?.project || {
+                              id: currentSnap.project_id,
+                              name: repo.full_name,
+                              owner_id: repo.owner,
+                              repository_source_type: 'github_app' as const,
+                              github_repository_id: repo.id,
+                              created_at: new Date().toISOString(),
+                            }
+                            selectRepository(proj, currentSnap)
+                            router.push(`/workspace/new-verification?snapshot_id=${currentSnap.id}`)
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            color: '#EA580C',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
                         >
                           <span>Verify a plan with this snapshot</span>
                           <ArrowRight size={11} />
-                        </Link>
+                        </button>
                       )}
                     </div>
                   )}
@@ -492,16 +519,41 @@ export default function RepositoriesPage() {
                       {snapshot?.files_indexed ?? 0} files · {snapshot?.symbols_indexed ?? 0} symbols
                     </p>
 
-                    {isReady && (
-                      <div style={{ marginTop: 2 }}>
-                        <Link 
-                          href="/workspace/new-verification"
+                    {isReady && snapshot && (
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {selectedRepo?.repositoryId === project.id ? (
+                          <span className="badge-pill-base badge-verified" style={{ fontSize: 10.5 }}>
+                            <span className="synced-green-dot" /> Active repository
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-secondary-light"
+                            style={{ fontSize: 11, padding: '4px 8px' }}
+                            onClick={() => selectRepository(project, snapshot)}
+                          >
+                            Select as active
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            selectRepository(project, snapshot)
+                            router.push(`/workspace/new-verification?snapshot_id=${snapshot.id}`)
+                          }}
                           className="btn-plan-action"
-                          style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                          style={{
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: 11.5,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
                         >
                           <span>Verify a plan</span>
                           <ArrowRight size={10} />
-                        </Link>
+                        </button>
                       </div>
                     )}
                   </div>

@@ -2,9 +2,11 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 
-from app.api.dependencies import get_mongo
+from app.api.dependencies import get_mongo, get_settings_dep
+from app.api.github import get_optional_session
+from app.core.config import Settings
 from app.db.mongo import MongoManager
 from app.domain.projects import RepositorySourceType
 from app.domain.runs import RepositorySnapshot
@@ -14,6 +16,8 @@ from app.repositories.projects import ProjectsRepository
 from app.repositories.runs import RunRepository
 
 router = APIRouter(tags=["snapshots"])
+
+
 def _resolve_fixtures_root() -> Path:
     env_root = os.environ.get("PLANPROOF_FIXTURES_ROOT")
     if env_root and Path(env_root).exists():
@@ -29,17 +33,35 @@ def _resolve_fixtures_root() -> Path:
 _FIXTURES_ROOT = _resolve_fixtures_root()
 
 
+def _verify_tenant_project_access(project: dict, session: dict | None) -> None:
+    if not session:
+        return
+    proj_inst_id = project.get("github_installation_id")
+    if proj_inst_id is not None:
+        if proj_inst_id != session.get("installation_id"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
+        return
+    if project.get("owner_id") != session.get("account_login"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
+
+
 @router.post(
     "/v1/projects/{project_id}/snapshots",
     response_model=RepositorySnapshot,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_snapshot(
-    project_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]
+    project_id: str,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
 ) -> RepositorySnapshot:
+    session = await get_optional_session(mongo, settings, planproof_session)
     project = await ProjectsRepository(mongo).get(project_id)
     if project is None:
         raise HTTPException(404, "project not found")
+    _verify_tenant_project_access(project.model_dump(), session)
+
     try:
         if project.repository_source_type == RepositorySourceType.PUBLIC_GITHUB:
             source = PublicGitHubSource.from_url(project.repository_url, project.requested_ref)
@@ -65,10 +87,17 @@ async def create_snapshot(
 
 @router.get("/v1/projects/{project_id}/snapshots", response_model=list[RepositorySnapshot])
 async def list_project_snapshots(
-    project_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]
+    project_id: str,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
 ) -> list[RepositorySnapshot]:
-    if not await ProjectsRepository(mongo).get(project_id):
+    session = await get_optional_session(mongo, settings, planproof_session)
+    project = await ProjectsRepository(mongo).get(project_id)
+    if not project:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
+    _verify_tenant_project_access(project.model_dump(), session)
+
     cursor = mongo.database().repository_snapshots.find({"project_id": project_id}).sort(
         "created_at", -1
     )
@@ -77,9 +106,17 @@ async def list_project_snapshots(
 
 @router.get("/v1/snapshots/{snapshot_id}", response_model=RepositorySnapshot)
 async def get_snapshot(
-    snapshot_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]
+    snapshot_id: str,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
 ) -> RepositorySnapshot:
+    session = await get_optional_session(mongo, settings, planproof_session)
     snapshot = await RunRepository(mongo).get_snapshot(snapshot_id)
     if snapshot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "snapshot not found")
+    project = await mongo.database().projects.find_one({"id": snapshot.project_id})
+    if project:
+        _verify_tenant_project_access(project, session)
     return snapshot
+

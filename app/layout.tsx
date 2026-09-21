@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://planproof-web-lfrrer4z6q-el.a.run.app'
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://planproof.nikhilraikwar.me'
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

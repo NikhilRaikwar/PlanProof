@@ -148,7 +148,7 @@ class VerificationWorkflow:
         if not patterns or run.tool_call_count >= self.settings.verification_max_tool_calls:
             obligation.status = ObligationStatus.INCONCLUSIVE
             return
-        tools = RepositoryTools(self.runs, self.verification)
+        tools = RepositoryTools(self.runs, self.verification, run_id=run.id)
         for query, terminal in patterns:
             await self._event(run.id, "tool_started", "Running bounded lexical repository search")
             try:
@@ -160,6 +160,9 @@ class VerificationWorkflow:
                     continue
                 match = matches[0]
                 tool_doc = await self.verification.database.tool_runs.find_one(
+                    {"run_id": run.id, "tool_name": "search_code_lexical"},
+                    sort=[("started_at", -1)],
+                ) or await self.verification.database.tool_runs.find_one(
                     {"snapshot_id": run.snapshot_id, "tool_name": "search_code_lexical"},
                     sort=[("started_at", -1)],
                 )
@@ -189,6 +192,7 @@ class VerificationWorkflow:
                 await self.verification.create_tool_run(
                     ToolRun(
                         snapshot_id=run.snapshot_id,
+                        run_id=run.id,
                         tool_name="search_code_lexical",
                         input_hash="workflow-tool-failure",
                         status=ToolRunStatus.FAILED,

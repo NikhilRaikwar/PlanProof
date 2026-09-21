@@ -14,7 +14,7 @@ async function mockApi(page: Page) {
   await page.route('**/v1/verification-runs/run-actual/evidence', route => route.fulfill({ json: [{ id: 'ev-1', snapshot_id: snapshot.id, source_tool_run_id: 'tool-1', evidence_type: 'source_range', path: 'db/models/refund.ts', start_line: 9, end_line: 9, content_hash: 'ab'.repeat(32), safe_fact_summary: 'Unique constraint found.', created_at: '2026-09-21T00:00:00Z' }] }))
   await page.route('**/v1/verification-runs/run-actual/tool-runs', route => route.fulfill({ json: [{ id: 'tool-1', tool_name: 'search_code_lexical', status: 'SUCCEEDED', input_hash: 'cd'.repeat(32), result_count: 1, duration_ms: 12, started_at: '2026-09-21T00:00:00Z' }] }))
   await page.route('**/v1/verification-runs/run-actual', route => route.fulfill({ json: { run, obligation_counts: { DISPROVED: 1, HUMAN_REQUIRED: 1 }, human_questions: [{ id: 'question-1', obligation_id: 'ob-human', question: 'Does mobile consume this contract?', why_needed: 'Repository code cannot decide.', authority_required: 'Product owner', status: 'OPEN' }], tool_runs: [], evidence_count: 1 } }))
-  await page.route('**/v1/verification-runs', route => route.fulfill({ json: [run] }))
+  await page.route(url => url.pathname === '/v1/verification-runs', route => route.fulfill({ json: [run] }))
 }
 
 test('repositories use empty and seeded API states without fixture fallback', async ({ page }) => {
@@ -35,7 +35,7 @@ test('repositories use empty and seeded API states without fixture fallback', as
 test('runs, gate report, evidence, and trace are rendered from server records', async ({ page }) => {
   await mockApi(page)
   await page.goto('/workspace/runs')
-  await expect(page.getByText('BLOCKED')).toBeVisible()
+  await expect(page.getByText('BLOCKED', { exact: true })).toBeVisible()
   await page.goto('/workspace/runs/run-actual')
   await expect(page.getByText('Gate: BLOCKED')).toBeVisible()
   await expect(page.getByText('Multiple refunds fit current schema')).toBeVisible()
@@ -48,8 +48,8 @@ test('runs, gate report, evidence, and trace are rendered from server records', 
 })
 
 test('API failure is shown rather than substituted with mock product data', async ({ page }) => {
-  await page.route('**/v1/auth/session', route => route.fulfill({ json: { connected: true, account_login: 'test-user', installation_id: 12345 } }))
-  await page.route('**/v1/verification-runs', route => route.fulfill({ status: 503, json: { detail: 'unavailable' } }))
+  await mockApi(page)
+  await page.route(url => url.pathname === '/v1/verification-runs', route => route.fulfill({ status: 503, json: { detail: 'unavailable' } }))
   await page.goto('/workspace/runs')
   await expect(page.getByText('unavailable')).toBeVisible()
   await expect(page.getByText('Partial Refunds / PlanGate')).not.toBeVisible()

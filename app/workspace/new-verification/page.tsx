@@ -16,6 +16,7 @@ import {
   Upload 
 } from 'lucide-react'
 import { api, ApiError, Project, Snapshot } from '@/lib/api'
+import { useWorkspace } from '@/components/workspace-context'
 
 type SnapshotRow = {
   project: Project
@@ -24,6 +25,7 @@ type SnapshotRow = {
 
 export default function NewVerificationPage() {
   const router = useRouter()
+  const { selectedRepo, selectRepository } = useWorkspace()
   const [rows, setRows] = useState<SnapshotRow[]>([])
   const [selectedSnapshotId, setSelectedSnapshotId] = useState('')
   const [changeRequest, setChangeRequest] = useState('')
@@ -55,8 +57,23 @@ export default function NewVerificationPage() {
         )
 
         setRows(pairs)
-        if (pairs.length > 0) {
-          setSelectedSnapshotId(pairs[0].snapshot.id)
+
+        const urlParamSnapshotId =
+          typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search).get('snapshot_id')
+            : null
+        const targetId = urlParamSnapshotId || selectedRepo?.snapshotId
+
+        let chosen = pairs.find(p => p.snapshot.id === targetId)
+        if (!chosen && selectedRepo?.repositoryId) {
+          chosen = pairs.find(p => p.project.id === selectedRepo.repositoryId)
+        }
+        if (!chosen && pairs.length > 0) {
+          chosen = pairs[0]
+        }
+        if (chosen) {
+          setSelectedSnapshotId(chosen.snapshot.id)
+          selectRepository(chosen.project, chosen.snapshot)
         }
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not load repository snapshots.')
@@ -165,7 +182,14 @@ export default function NewVerificationPage() {
                 id="target-snapshot"
                 className="custom-select-box"
                 value={selectedSnapshotId}
-                onChange={e => setSelectedSnapshotId(e.target.value)}
+                onChange={e => {
+                  const newId = e.target.value
+                  setSelectedSnapshotId(newId)
+                  const found = rows.find(r => r.snapshot.id === newId)
+                  if (found) {
+                    selectRepository(found.project, found.snapshot)
+                  }
+                }}
               >
                 {rows.map(({ project, snapshot }) => {
                   const isDemo = project.repository_source_type === 'seeded_fixture'

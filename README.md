@@ -24,7 +24,7 @@ PlanProof is a pre-flight verification system for AI-generated software engineer
 [![Google Cloud Run](https://img.shields.io/badge/GCP-Cloud_Run-4285F4?style=flat-square&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
 
 **Live Production Deployment**:
-- **Workspace UI**: [https://planproof-web-lfrrer4z6q-el.a.run.app](https://planproof-web-lfrrer4z6q-el.a.run.app)
+- **Branded Web UI**: [https://planproof.nikhilraikwar.me](https://planproof.nikhilraikwar.me) (Firebase CDN front door → Cloud Run `asia-south1`)
 - **Authoritative API**: [https://planproof-api-lfrrer4z6q-el.a.run.app](https://planproof-api-lfrrer4z6q-el.a.run.app)
 
 **Documentation & Deep Dives**:

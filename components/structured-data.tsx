@@ -2,7 +2,7 @@ import React from 'react'
 
 export function StructuredData() {
   const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL || 'https://planproof-web-lfrrer4z6q-el.a.run.app'
+    process.env.NEXT_PUBLIC_SITE_URL || 'https://planproof.nikhilraikwar.me'
 
   const softwareAppSchema = {
     '@context': 'https://schema.org',

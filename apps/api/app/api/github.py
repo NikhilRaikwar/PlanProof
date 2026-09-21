@@ -188,6 +188,22 @@ async def _session(mongo: MongoManager, settings: Settings, session_cookie: str 
     return item
 
 
+async def get_optional_session(
+    mongo: MongoManager, settings: Settings, session_cookie: str | None
+) -> dict | None:
+    if not session_cookie:
+        return None
+    token = _validate_signed(session_cookie, settings)
+    if not token:
+        return None
+    return await mongo.database().github_sessions.find_one(
+        {
+            "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+            "expires_at": {"$gt": datetime.now(UTC)},
+        }
+    )
+
+
 async def _installation(session: dict, mongo: MongoManager) -> dict:
     record = await mongo.database().github_installations.find_one(
         {"installation_id": session["installation_id"]}
@@ -340,15 +356,15 @@ async def workspace_projects(
     mongo: Annotated[MongoManager, Depends(get_mongo)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
     planproof_session: Annotated[str | None, Cookie()] = None,
+    include_demo: bool = False,
 ):
     session = await _session(mongo, settings, planproof_session)
-    cursor = (
-        mongo.database()
-        .projects.find(
-            {"owner_id": session["account_login"], "data_scope": {"$in": ["USER", "DEMO"]}}
-        )
-        .sort("created_at", -1)
-    )
+    query: dict[str, Any] = {"owner_id": session["account_login"]}
+    if include_demo:
+        query["data_scope"] = {"$in": ["USER", "DEMO"]}
+    else:
+        query["data_scope"] = "USER"
+    cursor = mongo.database().projects.find(query).sort("created_at", -1)
     return [Project.model_validate(item) async for item in cursor]
 
 

@@ -86,6 +86,12 @@ class VerificationRun(BaseModel):
     started_at: datetime | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+    commit_sha: str | None = None
+    ref: str | None = None
+    plan_title: str | None = None
+    evidence_count: int | None = None
+    tool_execution_count: int | None = None
+    has_open_human_question: bool | None = None
 
 
 class RunEvent(BaseModel):

@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next'
 
 export default function robots(): MetadataRoute.Robots {
   const baseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL || 'https://planproof-web-lfrrer4z6q-el.a.run.app'
+    process.env.NEXT_PUBLIC_SITE_URL || 'https://planproof.nikhilraikwar.me'
 
   return {
     rules: [

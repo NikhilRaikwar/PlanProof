@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { 
   Activity, 
   ArrowRight, 
+  Check,
   CheckCircle2, 
   Clock, 
   ExternalLink, 
@@ -24,8 +25,10 @@ import {
 } from 'lucide-react'
 import { api, ApiError, Project, Snapshot, VerificationRun, Session } from '@/lib/api'
 import { GithubIcon } from '@/components/repo-context-chip'
+import { useWorkspace } from '@/components/workspace-context'
 
 export default function WorkspaceDashboardPage() {
+  const { selectedRepo, selectRepository } = useWorkspace()
   const [session, setSession] = useState<Session | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({})
@@ -40,7 +43,7 @@ export default function WorkspaceDashboardPage() {
       const [sessionData, projectsData, runsData] = await Promise.all([
         api.session().catch(() => null),
         api.workspaceProjects().catch(() => []),
-        api.runs().catch(() => [])
+        api.runs(selectedRepo?.repositoryId).catch(() => [])
       ])
 
       setSession(sessionData)
@@ -74,7 +77,7 @@ export default function WorkspaceDashboardPage() {
 
   useEffect(() => {
     void loadData()
-  }, [])
+  }, [selectedRepo?.repositoryId])
 
   const humanRequiredRuns = recentRuns.filter(r => 
     r.status === 'HUMAN_WAIT' || r.status === 'HUMAN_DECISION_REQUIRED'
@@ -235,7 +238,7 @@ export default function WorkspaceDashboardPage() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid #F1F5F9', fontSize: 12 }}>
             <span style={{ color: '#64748B' }}>Deterministic Gate</span>
-            <span style={{ color: '#0F172A', fontWeight: 600 }}>AST + Schema + Graph</span>
+            <span style={{ color: '#0F172A', fontWeight: 600 }}>Deterministic Evidence Gate</span>
           </div>
         </div>
       </div>
@@ -276,15 +279,22 @@ export default function WorkspaceDashboardPage() {
                 const snapshot = snapshots[project.id]
                 const isDemo = project.repository_source_type === 'seeded_fixture'
                 const isReady = snapshot?.status === 'READY'
+                const isActive = selectedRepo?.repositoryId === project.id
 
                 return (
-                  <div key={project.id} className="card-panel-white" style={{ display: 'grid', gap: 10, padding: 16 }}>
+                  <div key={project.id} className="card-panel-white" style={{ display: 'grid', gap: 10, padding: 16, border: isActive ? '1px solid #EA580C' : undefined }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <strong style={{ fontSize: 13.5, color: '#0F172A', wordBreak: 'break-word' }}>
                             {project.name}
                           </strong>
+                          {isActive && (
+                            <span className="badge-pill-base badge-verified" style={{ fontSize: 10, padding: '2px 8px' }}>
+                              <Check size={11} strokeWidth={2.5} />
+                              Active
+                            </span>
+                          )}
                           {isDemo && (
                             <span style={{ fontSize: 10, fontWeight: 750, background: '#FEF3C7', color: '#D97706', padding: '2px 6px', borderRadius: 4 }}>
                               DEMO FIXTURE
@@ -334,10 +344,21 @@ export default function WorkspaceDashboardPage() {
                       <span style={{ color: '#64748B' }}>
                         {snapshot ? `${snapshot.files_indexed ?? 0} files · ${snapshot.symbols_indexed ?? 0} symbols` : 'Awaiting snapshot creation'}
                       </span>
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {!isActive && (
+                          <button
+                            type="button"
+                            className="btn-secondary-light"
+                            style={{ fontSize: 11, padding: '3px 8px' }}
+                            onClick={() => selectRepository(project, snapshot)}
+                          >
+                            Set active
+                          </button>
+                        )}
                         {isReady ? (
                           <Link 
-                            href={`/workspace/new-verification`}
+                            href={`/workspace/new-verification?snapshot_id=${snapshot.id}`}
+                            onClick={() => selectRepository(project, snapshot)}
                             style={{ color: '#EA580C', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                           >
                             <span>Verify plan</span>
@@ -366,7 +387,7 @@ export default function WorkspaceDashboardPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Activity size={17} color="#EA580C" />
-              Recent Verification Runs
+              Recent Verification Runs {selectedRepo ? `· ${selectedRepo.repositoryFullName.split('/').pop()}` : ''}
             </h2>
             <Link href="/workspace/runs" style={{ fontSize: 12.5, fontWeight: 700, color: '#EA580C', textDecoration: 'none' }}>
               View all

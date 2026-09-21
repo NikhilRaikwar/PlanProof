@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -60,6 +61,7 @@ class ToolRun(BaseModel):
     run_id: str | None = None
     tool_name: str
     input_hash: str
+    input_summary: dict[str, Any] | None = None
     trace_id: str = Field(default_factory=new_id)
     status: ToolRunStatus
     result_count: int = 0

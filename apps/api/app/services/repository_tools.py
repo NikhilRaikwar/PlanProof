@@ -45,10 +45,13 @@ class FindSymbolInput(ToolInput):
 
 
 class RepositoryTools:
-    def __init__(self, runs: RunRepository, audit: VerificationRepository) -> None:
+    def __init__(
+        self, runs: RunRepository, audit: VerificationRepository, run_id: str | None = None
+    ) -> None:
         self.runs = runs
         self.audit = audit
         self.database = audit.database
+        self.run_id = run_id
 
     async def list_files(self, data: ListFilesInput) -> list[dict]:
         query: dict = {"snapshot_id": data.snapshot_id}
@@ -170,10 +173,24 @@ class RepositoryTools:
     async def _audit(self, tool_name: str, data: BaseModel, count: int) -> ToolRun:
         started = time.monotonic()
         normalized = data.model_dump(mode="json")
+        safe_summary: dict = {}
+        if hasattr(data, "query"):
+            safe_summary["query"] = getattr(data, "query")
+        if hasattr(data, "path") and getattr(data, "path"):
+            safe_summary["path"] = getattr(data, "path")
+        if hasattr(data, "name") and getattr(data, "name"):
+            safe_summary["name"] = getattr(data, "name")
+        if hasattr(data, "start_line") and hasattr(data, "end_line"):
+            safe_summary["line_range"] = f"{getattr(data, 'start_line')}:{getattr(data, 'end_line')}"
+        if hasattr(data, "limit"):
+            safe_summary["limit"] = getattr(data, "limit")
+
         item = ToolRun(
             snapshot_id=data.snapshot_id,
+            run_id=self.run_id,
             tool_name=tool_name,
             input_hash=hashlib.sha256(json.dumps(normalized, sort_keys=True).encode()).hexdigest(),
+            input_summary=safe_summary if safe_summary else None,
             status=ToolRunStatus.SUCCEEDED,
             result_count=count,
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),

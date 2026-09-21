@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import Link from 'next/link'
 import { GitBranch } from 'lucide-react'
-import { api, Project, Snapshot } from '@/lib/api'
+import { useWorkspace } from './workspace-context'
 
 // Custom GitHub SVG Icon
 export function GithubIcon({ size = 14, className = "" }: { size?: number; className?: string }) {
@@ -34,39 +34,38 @@ export function RepoContextChip({
   commit,
   syncedText,
 }: RepoContextChipProps) {
-  const [activeProject, setActiveProject] = useState<Project | null>(null)
-  const [activeSnapshot, setActiveSnapshot] = useState<Snapshot | null>(null)
+  const { selectedRepo, runContext } = useWorkspace()
 
-  useEffect(() => {
-    if (repo) return
-    void (async () => {
-      try {
-        const projects = await api.workspaceProjects()
-        const userProjects = projects.filter(p => !p.name.startsWith('e2e-'))
-        if (userProjects.length > 0) {
-          const first = userProjects[0]
-          setActiveProject(first)
-          const snapshots = await api.snapshots(first.id)
-          if (snapshots.length > 0) {
-            setActiveSnapshot(snapshots[0])
-          }
-        }
-      } catch {
-        // Leave neutral state
-      }
-    })()
-  }, [repo])
+  // Run context takes priority when on Run Report without modifying selectedRepo
+  const isRun = Boolean(runContext)
+  const active = runContext || selectedRepo
 
-  const displayRepo = repo || activeProject?.name || 'No repository selected'
-  const displayBranch = branch || activeSnapshot?.requested_ref || activeProject?.requested_ref
-  const displayCommit = commit || (activeSnapshot?.resolved_commit_sha ? activeSnapshot.resolved_commit_sha.slice(0, 7) : undefined)
-  const displaySynced = syncedText || (activeSnapshot ? (activeSnapshot.status === 'READY' ? 'Snapshot READY' : activeSnapshot.status) : 'Select repository')
+  const displayRepo = repo || active?.repositoryFullName || 'Select repository'
+  const displayBranch = branch || active?.ref
+  const displayCommit = commit || (active?.commitSha ? active.commitSha.slice(0, 7) : undefined)
+  const displaySynced = syncedText || (
+    isRun
+      ? 'Run context'
+      : active?.snapshotStatus === 'READY'
+      ? 'Snapshot READY'
+      : active?.snapshotStatus || (active ? 'No snapshot' : 'Select repository')
+  )
+
+  const isReady = active?.snapshotStatus === 'READY'
+  const isFailed = active?.snapshotStatus === 'FAILED'
 
   return (
     <Link href="/workspace/repositories" style={{ textDecoration: 'none' }}>
-      <div className="topbar-repo-badge" style={{ cursor: 'pointer' }}>
+      <div 
+        className="topbar-repo-badge" 
+        style={{ 
+          cursor: 'pointer',
+          borderColor: isRun ? '#CBD5E1' : undefined,
+          background: isRun ? '#F8FAFC' : undefined,
+        }}
+      >
         <GithubIcon size={14} />
-        <span style={{ fontWeight: 750, color: '#0F172A', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ fontWeight: 750, color: '#0F172A', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {displayRepo}
         </span>
         {displayBranch && (
@@ -79,7 +78,7 @@ export function RepoContextChip({
           <span 
             className="synced-green-dot" 
             style={{ 
-              background: activeSnapshot?.status === 'READY' ? '#16A34A' : activeSnapshot?.status === 'FAILED' ? '#DC2626' : activeSnapshot ? '#F59E0B' : '#94A3B8' 
+              background: isRun ? '#6366F1' : isReady ? '#16A34A' : isFailed ? '#DC2626' : active ? '#F59E0B' : '#94A3B8' 
             }} 
           />
           {displaySynced}

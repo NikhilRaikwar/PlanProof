@@ -6,6 +6,8 @@ import { AppSidebar } from '@/components/app-sidebar'
 import { AppTopbar } from '@/components/app-topbar'
 import { api } from '@/lib/api'
 
+import { WorkspaceProvider } from '@/components/workspace-context'
+
 export function WorkspaceShell({
   children,
 }: {
@@ -21,21 +23,23 @@ export function WorkspaceShell({
   }, [router])
 
   return (
-    <div className="app-shell">
-      {/* Sidebar */}
-      <AppSidebar
-        mobileOpen={mobileMenuOpen}
-        onCloseMobile={() => setMobileMenuOpen(false)}
-      />
+    <WorkspaceProvider>
+      <div className="app-shell">
+        {/* Sidebar */}
+        <AppSidebar
+          mobileOpen={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)}
+        />
 
-      {/* Main Content View with Topbar */}
-      <div
-        className="app-main-area"
-        style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}
-      >
-        <AppTopbar onToggleMobile={() => setMobileMenuOpen(!mobileMenuOpen)} />
-        <main className="app-content-wrap">{children}</main>
+        {/* Main Content View with Topbar */}
+        <div
+          className="app-main-area"
+          style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}
+        >
+          <AppTopbar onToggleMobile={() => setMobileMenuOpen(!mobileMenuOpen)} />
+          <main className="app-content-wrap">{children}</main>
+        </div>
       </div>
-    </div>
+    </WorkspaceProvider>
   )
 }

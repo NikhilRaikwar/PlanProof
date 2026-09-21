@@ -20,7 +20,7 @@ PlanProof is a pre-flight verification system for AI-generated software engineer
 - **AST & Symbol Indexing vs. Premature Vector RAG**: Code verification requires exact syntactic definitions, parameter signatures, and cryptographic line provenance rather than fuzzy semantic similarity.
 
 ## Public Resources & Documentation
-- Homepage: https://planproof-web-lfrrer4z6q-el.a.run.app
+- Homepage: https://planproof.nikhilraikwar.me
 - Architecture: https://github.com/NikhilRaikwar/PlanProof/blob/main/docs/ARCHITECTURE.md
 - Security: https://github.com/NikhilRaikwar/PlanProof/blob/main/docs/SECURITY.md
 - Evaluations: https://github.com/NikhilRaikwar/PlanProof/blob/main/docs/EVALUATIONS.md
