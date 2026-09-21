@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { 
@@ -17,6 +17,7 @@ import {
   Layers
 } from 'lucide-react'
 import Link from 'next/link'
+import { api } from '@/lib/api'
 
 // Animation variants
 const fadeInUp: Variants = {
@@ -73,7 +74,7 @@ function PlayIcon({ className = "w-3 h-3", size = 11 }: { className?: string; si
 // -------------------------------------------------------------
 // SCENE 1: HERO SECTION
 // -------------------------------------------------------------
-function HeroSection() {
+function HeroSection({ connected }: { connected: boolean }) {
   return (
     <section className="scene-hero scene-hero-centered" id="hero">
       {/* Subtle warm ambient glows on empty sides */}
@@ -107,10 +108,18 @@ function HeroSection() {
 
           {/* Action CTAs */}
           <motion.div variants={fadeInUp} className="hero-actions-centered">
-            <Link href="/workspace/new-verification" className="btn-primary-coral">
-              <span>Start for free</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+            {connected ? (
+              <Link href="/workspace" className="btn-primary-coral">
+                <span>Open workspace</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            ) : (
+              <a href={api.connectGithubUrl()} className="btn-primary-coral">
+                <GithubIcon className="w-3.5 h-3.5" />
+                <span>Connect GitHub</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            )}
             <a href="#how-it-works" className="btn-secondary-light">
               <div className="play-icon-circle-light">
                 <PlayIcon className="w-2.5 h-2.5 fill-current ml-0.5" />
@@ -578,10 +587,10 @@ function ConnectedSystemSection() {
             >
               <div className="core-cube-box">
                 <Image 
-                  src="/icon-cube.png" 
-                  alt="PlanProof Core Mark" 
-                  width={38} 
-                  height={38} 
+                  src="/logo.png" 
+                  alt="" 
+                  width={34} 
+                  height={34} 
                   className="core-logo-img" 
                 />
               </div>
@@ -639,7 +648,7 @@ function ConnectedSystemSection() {
 // -------------------------------------------------------------
 // SCENE 5: FINAL CTA & LIGHT FOOTER
 // -------------------------------------------------------------
-function CtaSection() {
+function CtaSection({ connected }: { connected: boolean }) {
   return (
     <section className="scene-cta" id="cta">
       <div className="scene-container">
@@ -667,14 +676,18 @@ function CtaSection() {
             Ship with confidence.
           </p>
           <div className="cta-actions">
-            <Link href="/workspace/new-verification" className="btn-primary-coral">
-              <span>Start a verification</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-            <Link href="/workspace/new-verification" className="btn-secondary-light">
-              <GithubIcon className="w-3.5 h-3.5" />
-              <span>Connect GitHub</span>
-            </Link>
+            {connected ? (
+              <Link href="/workspace" className="btn-primary-coral">
+                <span>Open workspace</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            ) : (
+              <a href={api.connectGithubUrl()} className="btn-primary-coral">
+                <GithubIcon className="w-3.5 h-3.5" />
+                <span>Connect GitHub</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            )}
           </div>
         </motion.div>
       </div>
@@ -740,6 +753,14 @@ function CtaSection() {
 // MAIN LANDING PAGE COMPONENT
 // -------------------------------------------------------------
 export default function LandingPage() {
+  const [connected, setConnected] = useState(false)
+
+  useEffect(() => {
+    void api.session()
+      .then(s => setConnected(Boolean(s?.connected)))
+      .catch(() => setConnected(false))
+  }, [])
+
   return (
     <div className="planproof-landing-root">
       {/* Sticky / Fixed Glassmorphic Navigation Bar */}
@@ -759,24 +780,33 @@ export default function LandingPage() {
           </nav>
 
           <div className="nav-right">
-            <Link 
-              href="/workspace/new-verification" 
-              className="nav-github-btn"
-            >
-              <GithubIcon className="w-3.5 h-3.5" />
-              <span>Connect GitHub</span>
-            </Link>
+            {connected ? (
+              <Link 
+                href="/workspace" 
+                className="nav-github-btn"
+              >
+                <span>Open workspace</span>
+              </Link>
+            ) : (
+              <a 
+                href={api.connectGithubUrl()} 
+                className="nav-github-btn"
+              >
+                <GithubIcon className="w-3.5 h-3.5" />
+                <span>Connect GitHub</span>
+              </a>
+            )}
           </div>
         </div>
       </header>
 
       {/* Main Viewport Content */}
       <main className="landing-scenes-wrapper">
-        <HeroSection />
+        <HeroSection connected={connected} />
         <ConfidenceSection />
         <WorkflowSection />
         <ConnectedSystemSection />
-        <CtaSection />
+        <CtaSection connected={connected} />
       </main>
     </div>
   )
