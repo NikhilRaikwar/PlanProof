@@ -6,6 +6,14 @@ from pymongo.errors import OperationFailure
 
 INDEXES: dict[str, list[IndexModel]] = {
     "projects": [IndexModel([("owner_id", ASCENDING), ("created_at", DESCENDING)])],
+    "github_installations": [
+        IndexModel([("installation_id", ASCENDING)], unique=True),
+        IndexModel([("account_login", ASCENDING), ("updated_at", DESCENDING)]),
+    ],
+    "github_sessions": [
+        IndexModel([("token_hash", ASCENDING)], unique=True),
+        IndexModel([("expires_at", ASCENDING)], expireAfterSeconds=0),
+    ],
     "repository_snapshots": [
         IndexModel(
             [

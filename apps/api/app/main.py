@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import evaluations, health, projects, snapshots, verification, workflow
+from app.api import evaluations, github, health, projects, snapshots, verification, workflow
 from app.core.config import Settings, get_settings
 from app.db.mongo import MongoManager
 from app.db.redis import RedisManager
@@ -42,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.mongo = mongo
     app.state.redis = redis
+    app.state.settings = runtime_settings
     @app.middleware("http")
     async def production_boundaries(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID", str(uuid4()))[:128]
@@ -95,13 +96,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=runtime_settings.web_origins,
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type", "Idempotency-Key"],
     )
 
     configure_observability(runtime_settings, app)
     app.include_router(health.router)
+    app.include_router(github.router)
     app.include_router(projects.router)
     app.include_router(snapshots.router)
     app.include_router(verification.router)

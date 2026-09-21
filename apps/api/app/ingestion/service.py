@@ -12,7 +12,12 @@ from pymongo.errors import DuplicateKeyError
 
 from app.domain.runs import SnapshotStatus
 from app.ingestion.parsers import ExtractedSymbol, extract_jsts_symbols, extract_python_symbols
-from app.ingestion.sources import PublicGitHubSource, RepositorySource, SeededFixtureSource
+from app.ingestion.sources import (
+    GitHubAppSource,
+    PublicGitHubSource,
+    RepositorySource,
+    SeededFixtureSource,
+)
 from app.repositories.runs import RunRepository
 
 PARSER_VERSION = "ast-regex-v1"
@@ -123,8 +128,17 @@ class SnapshotIngestionService:
             if isinstance(source, SeededFixtureSource):
                 shutil.copytree(source.fixture_path, destination, symlinks=False)
                 return root, destination, hashlib.sha256(self._tree_bytes(destination)).hexdigest()
-            assert isinstance(source, PublicGitHubSource)
+            assert isinstance(source, (PublicGitHubSource, GitHubAppSource))
             command = ["git", "-c", "credential.helper=", "clone", "--depth", "1"]
+            if isinstance(source, GitHubAppSource):
+                # Avoid embedding credentials in the clone URL or persistent
+                # repository state. git receives a short-lived header only.
+                import base64
+
+                basic = base64.b64encode(
+                    f"x-access-token:{source.installation_token}".encode()
+                ).decode()
+                command[1:1] = ["-c", f"http.extraHeader=AUTHORIZATION: basic {basic}"]
             if source.requested_ref:
                 command.extend(["--branch", source.requested_ref])
             command.extend([source.clone_url, str(destination)])

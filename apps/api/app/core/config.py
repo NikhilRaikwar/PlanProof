@@ -26,6 +26,15 @@ class Settings(BaseSettings):
 
     redis_url: SecretStr | None = None
 
+    # GitHub App credentials remain backend-only.  They are optional during
+    # local development so the rest of PlanProof can still run without an App.
+    github_app_id: str | None = None
+    github_app_slug: str | None = None
+    github_app_private_key: SecretStr | None = None
+    github_callback_url: AnyHttpUrl | None = None
+    session_secret: SecretStr | None = None
+    session_cookie_secure: bool = True
+
     verification_max_iterations: int = Field(default=4, ge=1, le=20)
     verification_max_tool_calls: int = Field(default=6, ge=1, le=30)
     verification_max_model_calls: int = Field(default=3, ge=0, le=20)
@@ -70,6 +79,15 @@ class Settings(BaseSettings):
     @property
     def redis_is_configured(self) -> bool:
         return self.redis_url is not None and bool(self.redis_url.get_secret_value().strip())
+
+    @property
+    def github_app_is_configured(self) -> bool:
+        return bool(
+            self.github_app_id
+            and self.github_app_slug
+            and self.github_app_private_key
+            and self.session_secret
+        )
 
     @property
     def web_origins(self) -> list[str]:

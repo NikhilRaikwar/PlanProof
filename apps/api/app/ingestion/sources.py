@@ -56,6 +56,38 @@ class PublicGitHubSource(RepositorySource):
 
 
 @dataclass(frozen=True)
+class GitHubAppSource(RepositorySource):
+    """A repository selected through a verified GitHub App installation.
+
+    The short-lived installation token is intentionally process-only: it is
+    never persisted in a Project, Snapshot, audit event, or API response.
+    """
+
+    owner: str
+    repository: str
+    clone_url: str
+    installation_token: str
+
+    @classmethod
+    def from_repository(
+        cls, owner: str, repository: str, requested_ref: str | None, installation_token: str
+    ) -> GitHubAppSource:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", owner) or not re.fullmatch(
+            r"[A-Za-z0-9_.-]+", repository
+        ):
+            raise InvalidRepositorySource("invalid GitHub repository identity")
+        return cls(
+            source_type=RepositorySourceType.GITHUB_APP,
+            identity=f"github:{owner.lower()}/{repository.lower()}",
+            requested_ref=requested_ref,
+            owner=owner,
+            repository=repository,
+            clone_url=f"https://github.com/{owner}/{repository}.git",
+            installation_token=installation_token,
+        )
+
+
+@dataclass(frozen=True)
 class SeededFixtureSource(RepositorySource):
     fixture_id: str
     fixture_path: Path

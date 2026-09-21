@@ -1,6 +1,6 @@
 export type ApiStatus = 'READY' | 'QUEUED' | 'VERIFYING' | 'HUMAN_WAIT' | 'BLOCKED' | 'COMPLETE' | 'INCONCLUSIVE' | 'FAILED' | string
 
-export type Project = { id: string; name: string; repository_source_type: 'public_github' | 'seeded_fixture'; repository_url?: string | null; fixture_id?: string | null; requested_ref?: string | null; created_at: string }
+export type Project = { id: string; name: string; owner_id: string; repository_source_type: 'public_github' | 'seeded_fixture' | 'github_app'; repository_url?: string | null; fixture_id?: string | null; requested_ref?: string | null; github_repository_id?: number | null; data_scope?: 'USER' | 'DEMO' | string; created_at: string }
 export type Snapshot = { id: string; project_id: string; repository_identity: string; source_type: string; requested_ref?: string | null; resolved_commit_sha?: string | null; status: ApiStatus; files_indexed: number; symbols_indexed: number; ignored_files: number; supported_languages: string[]; created_at: string; updated_at: string }
 export type PlanVersion = { id: string; project_id: string; version: number; change_request: string; candidate_plan: string; parent_plan_version_id?: string | null; created_at: string }
 export type VerificationRun = { id: string; project_id: string; snapshot_id: string; plan_version_id: string; status: ApiStatus; created_at: string; updated_at: string; tool_call_count: number; model_call_count: number; prompt_tokens: number; completion_tokens: number; estimated_cost_usd: number }
@@ -10,13 +10,16 @@ export type ToolRun = { id: string; tool_name: string; status: string; input_has
 export type HumanQuestion = { id: string; obligation_id: string; question: string; why_needed: string; authority_required: string; status: string }
 export type RunProjection = { run: VerificationRun; obligation_counts: Record<string, number>; human_questions: HumanQuestion[]; tool_runs: ToolRun[]; evidence_count: number }
 export type EvaluationRun = { eval_run_id: string; timestamp: string; sample_count: number; metrics: Record<string, number>; limitations: string[] }
+export type Session = { connected: true; account_login: string; installation_id: number }
+export type GitHubRepository = { id: number; owner: string; name: string; full_name: string; private: boolean; default_branch: string }
+export type GitHubRef = { name: string; commit_sha: string }
 
 export class ApiError extends Error { constructor(public status: number, message: string) { super(message) } }
 const base = (process.env.NEXT_PUBLIC_PLANPROOF_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
-  try { response = await fetch(`${base}/v1${path}`, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } }) }
+  try { response = await fetch(`${base}/v1${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...init?.headers } }) }
   catch { throw new ApiError(0, 'PlanProof backend is unavailable.') }
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
@@ -28,6 +31,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => fetch(`${base}/health/ready`).then(r => r.ok),
   projects: () => request<Project[]>('/projects'),
+  workspaceProjects: () => request<Project[]>('/workspace/projects'),
+  session: () => request<Session>('/auth/session'),
+  logout: () => request<{ connected: false }>('/auth/logout', { method: 'POST' }),
+  connectGithubUrl: () => `${base}/v1/auth/github/connect`,
+  githubRepositories: () => request<GitHubRepository[]>('/github/repositories'),
+  githubRefs: (repositoryId: number) => request<GitHubRef[]>(`/github/repositories/${repositoryId}/refs`),
+  createConnectedSnapshot: (repositoryId: number, requested_ref?: string) => request<Snapshot>(`/github/repositories/${repositoryId}/snapshots`, { method: 'POST', body: JSON.stringify({ requested_ref }) }),
+  createDemoSnapshot: () => request<Snapshot>('/workspace/demo-snapshot', { method: 'POST' }),
   createProject: (body: object) => request<Project>('/projects', { method: 'POST', body: JSON.stringify(body) }),
   snapshots: (projectId: string) => request<Snapshot[]>(`/projects/${projectId}/snapshots`),
   createSnapshot: (projectId: string) => request<Snapshot>(`/projects/${projectId}/snapshots`, { method: 'POST' }),

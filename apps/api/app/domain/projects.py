@@ -11,6 +11,7 @@ from app.domain.common import new_id, now_utc
 class RepositorySourceType(StrEnum):
     SEEDED = "seeded_fixture"
     PUBLIC_GITHUB = "public_github"
+    GITHUB_APP = "github_app"
 
 
 class RepositorySourceInput(BaseModel):
@@ -52,6 +53,9 @@ class Project(BaseModel):
     repository_url: str | None = None
     requested_ref: str | None = None
     fixture_id: str | None = None
+    github_repository_id: int | None = None
+    github_installation_id: int | None = None
+    data_scope: str = "USER"
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
 
