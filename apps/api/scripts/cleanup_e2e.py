@@ -9,6 +9,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
+from pathlib import Path
+
+# Executing a file from ``scripts/`` makes that directory Python's import root.
+# Add the API project root explicitly so this operator utility works with
+# ``uv run python scripts/cleanup_e2e.py`` without changing user environment.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import Settings
 from app.db.mongo import MongoManager
@@ -25,9 +32,17 @@ async def cleanup(project_name: str) -> int:
         if len(projects) != 1:
             raise ValueError("refusing cleanup: expected exactly one matching E2E project")
         project_id = projects[0]["id"]
-        snapshots = [item["id"] async for item in database.repository_snapshots.find({"project_id": project_id})]
-        plans = [item["id"] async for item in database.plan_versions.find({"project_id": project_id})]
-        runs = [item["id"] async for item in database.verification_runs.find({"project_id": project_id})]
+        snapshots = [
+            item["id"]
+            async for item in database.repository_snapshots.find({"project_id": project_id})
+        ]
+        plans = [
+            item["id"] async for item in database.plan_versions.find({"project_id": project_id})
+        ]
+        runs = [
+            item["id"]
+            async for item in database.verification_runs.find({"project_id": project_id})
+        ]
 
         if runs:
             await database.events.delete_many({"run_id": {"$in": runs}})
