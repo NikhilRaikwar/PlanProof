@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { api, ApiError, Evidence, Obligation, RunProjection } from '@/lib/api'
 
@@ -16,32 +16,61 @@ export default function RunReportPage() {
   const [streamState, setStreamState] = useState<'connecting' | 'live' | 'reconnecting'>('connecting')
   const [answer, setAnswer] = useState('')
   const [error, setError] = useState('')
-  const load = async () => { try { const [p, o, e] = await Promise.all([api.run(runId), api.obligations(runId), api.evidence(runId)]); setProjection(p); setObligations(o); setEvidence(e) } catch (x) { setError(x instanceof ApiError ? x.message : 'Could not load run report.') } }
+  const loadTimer = useRef<number | null>(null)
+  const load = async () => {
+    try {
+      const [p, o, e] = await Promise.all([api.run(runId), api.obligations(runId), api.evidence(runId)])
+      setProjection(p)
+      setObligations(o)
+      setEvidence(e)
+      setError('')
+    } catch (x) {
+      if (!projection) {
+        setError(x instanceof ApiError ? x.message : 'Could not load run report.')
+      }
+    }
+  }
+
+  const triggerLoad = () => {
+    if (loadTimer.current) return
+    loadTimer.current = window.setTimeout(() => {
+      loadTimer.current = null
+      void load()
+    }, 400)
+  }
+
   useEffect(() => { void load() }, [runId])
-  // SSE delivers progress eagerly; this small persisted-projection refresh is
-  // the recovery path for a completed/reconnected stream.  It never simulates
-  // verification and stops for every authoritative terminal gate.
+
   useEffect(() => {
     if (!projection || terminal.has(projection.run.status)) return
-    const timer = window.setTimeout(() => { void load() }, 2_000)
+    const timer = window.setTimeout(() => { void load() }, 3_000)
     return () => window.clearTimeout(timer)
   }, [projection, runId])
+
   useEffect(() => {
     if (!projection || terminal.has(projection.run.status)) return
     const source = new EventSource(api.eventsUrl(runId))
     source.onopen = () => setStreamState('live')
     const receive = (event: MessageEvent) => {
       setEvents(old => old.some(item => item.startsWith(`${event.lastEventId}:`)) ? old : [...old, `${event.lastEventId}:${event.data}`])
-      void load()
+      triggerLoad()
     }
     eventTypes.forEach(type => source.addEventListener(type, receive))
-    // EventSource performs its own bounded reconnect. Event IDs are de-duplicated
-    // above, and every event triggers a fresh persisted projection fetch.
     source.onerror = () => setStreamState('reconnecting')
     return () => source.close()
   }, [projection, runId])
-  const submit = async (id: string) => { try { await api.answer(id, answer); setAnswer(''); await load() } catch (e) { setError(e instanceof ApiError ? e.message : 'Could not submit answer.') } }
-  if (error) return <div className="card-panel-white" style={{ color: '#B91C1C' }}>{error}</div>
+
+  const submit = async (id: string) => { 
+    try { 
+      await api.answer(id, answer)
+      setAnswer('')
+      void load() 
+    } catch (e) { 
+      setError(e instanceof ApiError ? e.message : 'Could not submit answer.') 
+    } 
+  }
+
+  if (error && !projection) return <div className="card-panel-white" style={{ color: '#B91C1C' }}>{error}</div>
   if (!projection) return <div className="card-panel-white">Loading run report…</div>
   const { run } = projection
   return <div style={{ display: 'grid', gap: 18 }}>
