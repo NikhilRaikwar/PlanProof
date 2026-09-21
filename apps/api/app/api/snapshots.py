@@ -14,12 +14,19 @@ from app.repositories.projects import ProjectsRepository
 from app.repositories.runs import RunRepository
 
 router = APIRouter(tags=["snapshots"])
-_configured_fixtures_root = os.environ.get("PLANPROOF_FIXTURES_ROOT")
-_FIXTURES_ROOT = (
-    Path(_configured_fixtures_root)
-    if _configured_fixtures_root
-    else Path(__file__).resolve().parents[4] / "demo-repos"
-)
+def _resolve_fixtures_root() -> Path:
+    env_root = os.environ.get("PLANPROOF_FIXTURES_ROOT")
+    if env_root and Path(env_root).exists():
+        return Path(env_root)
+    curr = Path(__file__).resolve()
+    for parent in curr.parents:
+        candidate = parent / "demo-repos"
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    return Path("/demo-repos")
+
+
+_FIXTURES_ROOT = _resolve_fixtures_root()
 
 
 @router.post(
