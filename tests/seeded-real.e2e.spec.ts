@@ -10,6 +10,10 @@ test('seeded fixture flows through the browser, Redis worker, human answer, and 
   await page.locator('select').selectOption('seeded_fixture')
   await page.getByLabel('Display name (optional)').fill(projectName)
   await page.getByRole('button', { name: 'Create and index snapshot' }).click()
+  // A post creates the project before asynchronous indexing begins. Reload the
+  // actual browser route so the test observes persisted API state rather than
+  // assuming one client-side refresh completed in the same render tick.
+  await page.reload()
   await expect(page.getByText(projectName)).toBeVisible()
   const projectCard = page.locator('.card-panel-white').filter({ hasText: projectName })
   await expect(projectCard.getByText('READY')).toBeVisible({ timeout: 90_000 })
@@ -32,7 +36,7 @@ test('seeded fixture flows through the browser, Redis worker, human answer, and 
   await page.getByPlaceholder('Record the authorized decision…').fill('Product owner confirms the mobile contract impact.')
   await page.getByRole('button', { name: 'Submit decision' }).click()
   await expect(page.getByText('Gate: BLOCKED')).toBeVisible({ timeout: 90_000 })
-  await expect(page.getByText('DISPROVED')).toBeVisible()
+  await expect(page.getByText('DISPROVED', { exact: true }).first()).toBeVisible()
   // Evidence is discovered from the current seeded snapshot, never injected as
   // a fixture assertion.  Verify the rendered server record has a real
   // snapshot-relative path and source range without coupling to one filename.

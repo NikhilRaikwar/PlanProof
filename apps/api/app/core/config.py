@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     verification_max_model_calls: int = Field(default=3, ge=0, le=20)
     verification_max_context_bytes: int = Field(default=64_000, ge=1_000, le=1_000_000)
     max_request_bytes: int = Field(default=1_000_000, ge=1_024, le=10_000_000)
-    rate_limit_requests: int = Field(default=60, ge=1, le=10_000)
+    # A live run report makes bounded persisted-projection reads while SSE
+    # reconnects.  Sixty requests/minute denies one normal browser session;
+    # 300 still provides a finite unauthenticated abuse boundary.
+    rate_limit_requests: int = Field(default=300, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
 
     openrouter_api_key: SecretStr | None = None
