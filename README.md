@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/planproof-logo.svg" alt="PlanProof Logo" width="480" />
+  <img src="public/logodesign.png" alt="PlanProof Logo" width="620" />
 </p>
 
 # PlanProof
