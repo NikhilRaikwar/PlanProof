@@ -8,7 +8,6 @@ from app.api.dependencies import get_mongo, get_settings_dep
 from app.api.github import get_optional_session
 from app.core.config import Settings
 from app.db.mongo import MongoManager
-from app.domain.projects import RepositorySourceType
 from app.domain.runs import RepositorySnapshot
 from app.ingestion.service import INDEX_VERSION, PARSER_VERSION, SnapshotIngestionService
 from app.ingestion.sources import InvalidRepositorySource, PublicGitHubSource, seeded_fixture_source
@@ -63,10 +62,14 @@ async def create_snapshot(
     _verify_tenant_project_access(project.model_dump(), session)
 
     try:
-        if project.repository_source_type == RepositorySourceType.PUBLIC_GITHUB:
-            source = PublicGitHubSource.from_url(project.repository_url, project.requested_ref)
-        else:
+        if project.repository_url:
+            source = PublicGitHubSource.from_url(str(project.repository_url), project.requested_ref)
+        elif project.fixture_id:
             source = seeded_fixture_source(project.fixture_id, _FIXTURES_ROOT)
+        else:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "project lacks repository source"
+            )
     except (InvalidRepositorySource, ValueError) as exc:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid repository source"
