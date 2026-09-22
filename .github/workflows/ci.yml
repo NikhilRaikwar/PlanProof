@@ -21,6 +21,7 @@ jobs:
       - run: npm run secret:scan
       - run: npm run typecheck
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
       - run: npm run test:ui
 
   backend:

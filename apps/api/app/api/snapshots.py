@@ -98,8 +98,10 @@ async def list_project_snapshots(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
     _verify_tenant_project_access(project.model_dump(), session)
 
-    cursor = mongo.database().repository_snapshots.find({"project_id": project_id}).sort(
-        "created_at", -1
+    cursor = (
+        mongo.database()
+        .repository_snapshots.find({"project_id": project_id})
+        .sort("created_at", -1)
     )
     return [RepositorySnapshot.model_validate(item) async for item in cursor]
 
@@ -119,4 +121,3 @@ async def get_snapshot(
     if project:
         _verify_tenant_project_access(project, session)
     return snapshot
-

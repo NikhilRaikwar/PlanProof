@@ -31,7 +31,10 @@ def test_github_connect_redirects_when_app_configured() -> None:
         response = client.get("/v1/auth/github/connect", follow_redirects=False)
 
     assert response.status_code == 307
-    assert "https://github.com/apps/planproof-app/installations/new?state=" in response.headers["location"]
+    assert (
+        "https://github.com/apps/planproof-app/installations/new?state="
+        in response.headers["location"]
+    )
     assert "planproof_github_state" in response.cookies
 
 

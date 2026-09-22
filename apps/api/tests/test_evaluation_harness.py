@@ -39,12 +39,18 @@ def test_metrics_are_calculated_only_from_observed_case_results() -> None:
 
 def test_regression_thresholds_are_explicit_and_insufficient_data_is_honest() -> None:
     assert regression_gate({}, {}, {"status_accuracy": 0.01}) is RegressionStatus.INSUFFICIENT_DATA
-    assert regression_gate(
-        {"status_accuracy": 0.9}, {"status_accuracy": 0.7}, {"status_accuracy": 0.1}
-    ) is RegressionStatus.REGRESSION
-    assert regression_gate(
-        {"status_accuracy": 0.9}, {"status_accuracy": 0.85}, {"status_accuracy": 0.1}
-    ) is RegressionStatus.PASS
+    assert (
+        regression_gate(
+            {"status_accuracy": 0.9}, {"status_accuracy": 0.7}, {"status_accuracy": 0.1}
+        )
+        is RegressionStatus.REGRESSION
+    )
+    assert (
+        regression_gate(
+            {"status_accuracy": 0.9}, {"status_accuracy": 0.85}, {"status_accuracy": 0.1}
+        )
+        is RegressionStatus.PASS
+    )
 
 
 def test_offline_runner_requires_observed_results_and_emits_explicit_regression(
@@ -72,20 +78,23 @@ def test_offline_runner_requires_observed_results_and_emits_explicit_regression(
     baseline.write_text(json.dumps({"metrics": {"status_accuracy": 1.0}}), encoding="utf-8")
     thresholds.write_text(json.dumps({"status_accuracy": 0.01}), encoding="utf-8")
 
-    assert main(
-        [
-            "--results",
-            str(results),
-            "--case-directory",
-            str(CASE_DIRECTORY),
-            "--baseline",
-            str(baseline),
-            "--thresholds",
-            str(thresholds),
-            "--output",
-            str(output),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "--results",
+                str(results),
+                "--case-directory",
+                str(CASE_DIRECTORY),
+                "--baseline",
+                str(baseline),
+                "--thresholds",
+                str(thresholds),
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["sample_count"] == 1
     assert report["regression_status"] == "PASS"

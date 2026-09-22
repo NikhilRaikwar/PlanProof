@@ -119,45 +119,39 @@ The end-to-end verification lifecycle strictly separates non-authoritative LLM p
 
 ```mermaid
 flowchart TD
-  classDef modelNode fill:#FFF1EB,stroke:#FF4D2E,stroke-width:2px,color:#9A1C00;
-  classDef authNode fill:#0F172A,stroke:#38BDF8,stroke-width:2px,color:#F8FAFC;
-  classDef storeNode fill:#F8FAFC,stroke:#64748B,stroke-width:1.5px,color:#0F172A;
-  classDef verifiedNode fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#14532D;
-  classDef blockedNode fill:#FEF2F2,stroke:#DC2626,stroke-width:2px,color:#7F1D1D;
-  classDef humanNode fill:#FFFBEB,stroke:#F59E0B,stroke-width:2px,color:#78350F;
-
   subgraph Ingestion["1. Immutable Ingestion"]
-    Repo[GitHub Repository]:::storeNode --> SHA[Resolve Commit SHA]:::authNode
-    SHA --> Snapshot[(Immutable Snapshot<br/>Files + Symbols)]:::storeNode
+    Repo[GitHub Repository] --> SHA[Resolve Commit SHA]
+    SHA --> Snapshot[(Immutable Snapshot: Files + Symbols)]
   end
 
   subgraph Extraction["2. Obligation Extraction"]
-    Plan[Candidate Plan + Change Request]:::storeNode --> LLMExtract[LLM Structured Claim Proposal]:::modelNode
-    LLMExtract --> ValidateObligations[Server Pydantic Validation & Normalization]:::authNode
-    ValidateObligations --> Obligations[(Proof Obligations)]:::storeNode
+    Plan[Candidate Plan + Change Request] --> LLMExtract[LLM Structured Claim Proposal]
+    LLMExtract --> ValidateObligations[Server Pydantic Validation & Normalization]
+    ValidateObligations --> Obligations[(Proof Obligations)]
   end
 
   subgraph Investigation["3. Bounded Investigation"]
-    Obligations --> ObligationLoop[Single Obligation Focus]:::authNode
-    ObligationLoop --> FastValidators{Deterministic AST<br/>Validator Match?}:::authNode
-    FastValidators -- Yes --> PolicyCheck[Deterministic Status Policy]:::authNode
-    FastValidators -- No --> LLMToolSelect[LLM Proposes Tool Action]:::modelNode
-    LLMToolSelect --> ToolAllowlist[Allowlist & Schema Authorization]:::authNode
-    ToolAllowlist --> RepTools[Snapshot-Scoped Tools<br/>AST Parse / Lexical Search]:::authNode
-    RepTools --> ToolRun[(Audited Tool Run)]:::storeNode
-    ToolRun --> EvidenceIssuer[Server Evidence Authority<br/>Content Hash Verification]:::authNode
-    EvidenceIssuer --> Evidence[(Server-Issued Evidence)]:::storeNode
-    Evidence --> PolicyCheck
+    Snapshot --> RepTools[Snapshot-Scoped Tools: AST & Search]
+    Obligations --> ObligationLoop[Single Obligation Focus]
+    ObligationLoop --> FastValidators{Deterministic AST Validator?}
+    FastValidators -->|No| LLMToolSelect[LLM Proposes Tool Action]
+    LLMToolSelect --> ToolAllowlist[Allowlist & Schema Authorization]
+    ToolAllowlist --> RepTools
+    RepTools --> ToolRun[(Audited Tool Run)]
+    ToolRun --> EvidenceIssuer[Server Evidence Authority: Content Hash Verification]
+    EvidenceIssuer --> Evidence[(Server-Issued Evidence)]
   end
 
   subgraph AuthorityGate["4. Authority & Final Plan Gate"]
-    PolicyCheck -- Authority Missing --> HumanWait[HUMAN_REQUIRED<br/>Workflow Pauses]:::humanNode
-    HumanWait --> HumanInput[Human Submits Decision]:::storeNode
+    FastValidators -->|Yes| PolicyCheck[Deterministic Status Policy]
+    Evidence --> PolicyCheck
+    PolicyCheck -->|Authority Gap| HumanWait[HUMAN_REQUIRED: Workflow Pauses]
+    HumanWait --> HumanInput[Human Submits Decision]
     HumanInput --> PolicyCheck
-    PolicyCheck --> FinalGate{Deterministic<br/>Gate Evaluator}:::authNode
-    FinalGate -- Direct Contradiction --> Blocked[BLOCKED]:::blockedNode
-    FinalGate -- All Satisfied --> Verified[VERIFIED_FOR_EXECUTION]:::verifiedNode
-    FinalGate -- Ambiguous / Budget Exhausted --> Inconclusive[INCONCLUSIVE]:::storeNode
+    PolicyCheck --> FinalGate{Deterministic Gate Evaluator}
+    FinalGate -->|Direct Contradiction| Blocked[BLOCKED]
+    FinalGate -->|All Satisfied| Verified[VERIFIED_FOR_EXECUTION]
+    FinalGate -->|Ambiguous / Exhausted| Inconclusive[INCONCLUSIVE]
   end
 ```
 
@@ -169,39 +163,35 @@ PlanProof runs a bounded state loop. The model never loops indefinitely, cannot 
 
 ```mermaid
 flowchart TD
-  classDef model fill:#FFF1EB,stroke:#FF4D2E,stroke-width:2px,color:#9A1C00;
-  classDef engine fill:#0F172A,stroke:#38BDF8,stroke-width:2px,color:#F8FAFC;
-  classDef terminal fill:#F8FAFC,stroke:#0F172A,stroke-width:2px,color:#0F172A;
-  classDef state fill:#F1F5F9,stroke:#94A3B8,stroke-width:1px,color:#334155;
+  Start([Next Pending Obligation]) --> CheckCat{Category: Business or Cross-Service?}
+  CheckCat -->|Yes| HumanState[Emit HUMAN_REQUIRED / Persist Question]
+  CheckCat -->|No| CheckBudget{Within Budget?}
 
-  Start([Next Pending Obligation]):::state --> CheckCat{Category == Business<br/>or Cross-Service?}:::engine
+  CheckBudget -->|Budget Exhausted| InconclusiveState[Mark INCONCLUSIVE: Safe Abstention]
+  CheckBudget -->|Within Budget| LLMAction[Model Proposes Next Tool Action]
 
-  CheckCat -- Yes --> HumanState[Emit HUMAN_REQUIRED<br/>Persist Question]:::terminal
-  CheckCat -- No --> CheckBudget{Iterations & Tools<br/>Within Budget?}:::engine
+  LLMAction --> SchemaValidate{Allowlist & Schema Check}
+  SchemaValidate -->|Invalid / Disallowed| Replan[Reject Action & Decrement Budget]
+  Replan --> BoundedLoop[Next Loop Iteration]
+  BoundedLoop --> CheckBudget
 
-  CheckBudget -- Budget Exhausted --> InconclusiveState[Mark INCONCLUSIVE<br/>Safe Abstention]:::terminal
-  CheckBudget -- Within Budget --> LLMAction[Model Proposes Next Tool Action]:::model
+  SchemaValidate -->|Authorized| ExecuteTool[Execute Repository Tool: Sandboxed]
+  ExecuteTool --> RecordToolRun[(Persist Tool Run + Input Hash)]
 
-  LLMAction --> SchemaValidate{Allowlist & Input<br/>Pydantic Schema Check}:::engine
-  SchemaValidate -- Invalid / Disallowed --> Replan[Reject Action & Bounded Re-attempt]:::engine
-  Replan --> CheckBudget
+  RecordToolRun --> CheckToolStatus{Tool Succeeded?}
+  CheckToolStatus -->|Failed| ToolFailEvent[Record Error Class / No Evidence]
+  ToolFailEvent --> BoundedLoop
 
-  SchemaValidate -- Authorized --> ExecuteTool[Execute Repository Tool<br/>Snapshot Sandboxed]:::engine
-  ExecuteTool --> RecordToolRun[(Persist Tool Run + Input Hash)]:::state
+  CheckToolStatus -->|Succeeded| IssueEvidence[Server Issues Cryptographic Evidence]
+  IssueEvidence --> ValidateProvenance{Provenance & Hash Match?}
 
-  RecordToolRun --> CheckToolStatus{Tool Execution<br/>Succeeded?}:::engine
-  CheckToolStatus -- Failed --> ToolFailEvent[Record Safe Error Class<br/>No Evidence Issued]:::state
-  ToolFailEvent --> CheckBudget
+  ValidateProvenance -->|Invalid Hash| DropEvidence[Reject Evidence]
+  DropEvidence --> BoundedLoop
 
-  CheckToolStatus -- Succeeded --> IssueEvidence[Server Issues Evidence<br/>Cryptographic Content Hash & Range]:::engine
-  IssueEvidence --> ValidateProvenance{Provenance & Hash<br/>Match Snapshot File?}:::engine
-
-  ValidateProvenance -- Invalid Hash/Range --> DropEvidence[Reject Evidence]:::engine
-  ValidateProvenance -- Valid Provenance --> ApplyPolicy{Deterministic Policy:<br/>Satisfied or Contradicted?}:::engine
-
-  ApplyPolicy -- Contradiction --> Disproved[Mark DISPROVED]:::terminal
-  ApplyPolicy -- Satisfied --> Verified[Mark VERIFIED]:::terminal
-  ApplyPolicy -- Inconclusive --> CheckBudget
+  ValidateProvenance -->|Valid Provenance| ApplyPolicy{Deterministic Policy}
+  ApplyPolicy -->|Contradiction| Disproved[Mark DISPROVED]
+  ApplyPolicy -->|Satisfied| Verified[Mark VERIFIED]
+  ApplyPolicy -->|Inconclusive| BoundedLoop
 ```
 
 ---
@@ -212,47 +202,41 @@ PlanProof is deployed in **Google Cloud Platform (GCP)** region `asia-south1` (M
 
 ```mermaid
 flowchart LR
-  classDef gcp fill:#F0F9FF,stroke:#0284C7,stroke-width:1.5px,color:#0369A1;
-  classDef worker fill:#0F172A,stroke:#38BDF8,stroke-width:2px,color:#F8FAFC;
-  classDef db fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#14532D;
-  classDef external fill:#FFF7ED,stroke:#EA580C,stroke-width:1.5px,color:#9A3412;
-
-  subgraph Clients["Browser & External Integrations"]
-    User[Developer Browser]:::external
-    GitHub[GitHub App API<br/>Read-only Contents]:::external
+  subgraph Clients["Clients"]
+    User[Developer Browser]
+    GitHub[GitHub App API]
   end
 
   subgraph GCP["Google Cloud Platform (asia-south1 / planproof-ai)"]
-    Web[Cloud Run: planproof-web<br/>Next.js 16 App Router]:::gcp
-    API[Cloud Run: planproof-api<br/>FastAPI /v1]:::gcp
-    Worker[Cloud Run Worker Pool<br/>Dramatiq Async Engine]:::worker
-    Redis[(Cloud Memorystore Redis<br/>Private VPC Only)]:::gcp
-    Secrets[Secret Manager<br/>Runtime Injected]:::gcp
-    VPC[Direct VPC Egress + Cloud NAT]:::gcp
+    Web[Cloud Run: planproof-web]
+    API[Cloud Run: planproof-api]
+    Worker[Cloud Run Worker Pool]
+    Redis[(Cloud Memorystore Redis)]
+    Secrets[Secret Manager]
   end
 
-  subgraph Database["Canonical Application Database"]
-    Atlas[(MongoDB Atlas<br/>14 Indexed Collections)]:::db
+  subgraph Database["Database"]
+    Atlas[(MongoDB Atlas)]
   end
 
-  subgraph ModelProviders["Model Gateway (Server-Side Only)"]
-    OpenRouter[OpenRouter<br/>Primary Provider]:::external
-    AIMLAPI[AIMLAPI<br/>Automatic Fallback]:::external
+  subgraph ModelProviders["Model Providers"]
+    OpenRouter[OpenRouter: Primary]
+    AIMLAPI[AIMLAPI: Fallback]
   end
 
-  User -->|HTTPS| Web
-  Web -->|Internal REST API| API
-  GitHub -->|RS256 JWT Auth| API
+  User --> Web
+  Web --> API
+  GitHub --> API
   
-  API -->|Readiness / Write| Atlas
-  API -->|Enqueue Verification Job| Redis
-  API -.->|Fetch Credentials| Secrets
+  API --> Atlas
+  API --> Redis
+  API -.-> Secrets
 
-  Redis -->|Task Message Delivery| Worker
-  Worker -->|Direct VPC / NAT| Atlas
-  Worker -.->|Fetch Credentials| Secrets
-  Worker -->|LangGraph Execution| OpenRouter
-  OpenRouter -.->|On Timeout/5xx Error| AIMLAPI
+  Redis --> Worker
+  Worker --> Atlas
+  Worker -.-> Secrets
+  Worker --> OpenRouter
+  OpenRouter -.->|Fallback on 5xx| AIMLAPI
 ```
 
 ---
@@ -263,36 +247,23 @@ PlanProof handles asynchronous, long-running verification jobs without blocking 
 
 ```mermaid
 stateDiagram-v2
-  [*] --> CREATED: POST /v1/projects/{id}/verifications
-  CREATED --> QUEUED: Enqueued to Redis/Dramatiq
-  QUEUED --> EXTRACTING_OBLIGATIONS: Worker dequeues job
+  [*] --> CREATED
+  CREATED --> QUEUED: Enqueued to Redis
+  QUEUED --> EXTRACTING_OBLIGATIONS: Worker dequeues
   
-  EXTRACTING_OBLIGATIONS --> VERIFYING: Obligations normalized & saved
-  EXTRACTING_OBLIGATIONS --> FAILED: Malformed payload / unrecoverable error
+  EXTRACTING_OBLIGATIONS --> VERIFYING: Obligations saved
+  EXTRACTING_OBLIGATIONS --> FAILED: Malformed payload
 
-  state VERIFYING {
-    [*] --> EvaluatingCodeFacts
-    EvaluatingCodeFacts --> DeterministicTools: AST / Lexical Search
-    DeterministicTools --> EvaluatingCodeFacts: Evidence Recorded
-  }
-
-  VERIFYING --> HUMAN_WAIT: Authority gap detected (Business / Cross-Service)
+  VERIFYING --> HUMAN_WAIT: Authority gap detected
+  HUMAN_WAIT --> QUEUED: Human submits answer
   
-  note right of HUMAN_WAIT
-    Worker releases thread.
-    No active loop or sleep.
-    State persisted in MongoDB Atlas.
-  end note
-
-  HUMAN_WAIT --> QUEUED: Human submits answer via Web UI
-  
-  VERIFYING --> FINALIZING: All obligations evaluated or budget reached
+  VERIFYING --> FINALIZING: All obligations evaluated
   
   FINALIZING --> BLOCKED: Counter-evidence discovered
   FINALIZING --> COMPLETE: All critical obligations VERIFIED
   FINALIZING --> HUMAN_DECISION_REQUIRED: Human question unanswered
   FINALIZING --> INCONCLUSIVE: Budget exhausted / safe abstention
-  FINALIZING --> FAILED: System failure / safe error class
+  FINALIZING --> FAILED: System failure
 
   BLOCKED --> [*]
   COMPLETE --> [*]

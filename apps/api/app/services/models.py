@@ -33,9 +33,7 @@ class ModelResult(BaseModel):
 
 
 class ModelGateway(Protocol):
-    async def complete(
-        self, request: ModelRequest, run_id: str | None = None
-    ) -> ModelResult: ...
+    async def complete(self, request: ModelRequest, run_id: str | None = None) -> ModelResult: ...
 
 
 class ProviderGateway:
@@ -44,9 +42,7 @@ class ProviderGateway:
     ) -> None:
         self.settings, self.repository = settings, repository
 
-    async def complete(
-        self, request: ModelRequest, run_id: str | None = None
-    ) -> ModelResult:
+    async def complete(self, request: ModelRequest, run_id: str | None = None) -> ModelResult:
         try:
             result = await self._attempt(
                 "openrouter",

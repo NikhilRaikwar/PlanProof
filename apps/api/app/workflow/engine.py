@@ -20,21 +20,131 @@ class WorkflowState(TypedDict):
 
 
 STOP_WORDS = {
-    "use", "uses", "used", "using", "add", "adds", "added", "adding", "create", "creates",
-    "created", "creating", "update", "updates", "updated", "updating", "delete", "deletes",
-    "deleted", "deleting", "implement", "implements", "implemented", "implementing", "ensure",
-    "ensures", "ensured", "ensuring", "check", "checks", "checked", "checking", "follow",
-    "follows", "followed", "following", "handle", "handles", "handled", "handling", "read",
-    "reads", "write", "writes", "store", "stores", "stored", "storing", "dispatch",
-    "dispatches", "dispatched", "dispatching", "the", "this", "that", "these", "those",
-    "from", "with", "without", "and", "for", "to", "into", "onto", "should", "will", "can",
-    "must", "have", "has", "had", "been", "all", "any", "not", "component", "function",
-    "utility", "class", "module", "service", "process", "user", "input", "commands",
-    "application", "existing", "backend", "database", "validation", "authentication",
-    "patterns", "pattern", "layer", "security", "enhanced", "error", "logging", "integrated",
-    "around", "communication", "configuration", "endpoints", "system", "code", "schema",
-    "synchronization", "client", "billing", "model", "models", "import", "imports", "imported",
-    "export", "exports", "exported", "const", "let", "var", "type", "interface", "true", "false"
+    "use",
+    "uses",
+    "used",
+    "using",
+    "add",
+    "adds",
+    "added",
+    "adding",
+    "create",
+    "creates",
+    "created",
+    "creating",
+    "update",
+    "updates",
+    "updated",
+    "updating",
+    "delete",
+    "deletes",
+    "deleted",
+    "deleting",
+    "implement",
+    "implements",
+    "implemented",
+    "implementing",
+    "ensure",
+    "ensures",
+    "ensured",
+    "ensuring",
+    "check",
+    "checks",
+    "checked",
+    "checking",
+    "follow",
+    "follows",
+    "followed",
+    "following",
+    "handle",
+    "handles",
+    "handled",
+    "handling",
+    "read",
+    "reads",
+    "write",
+    "writes",
+    "store",
+    "stores",
+    "stored",
+    "storing",
+    "dispatch",
+    "dispatches",
+    "dispatched",
+    "dispatching",
+    "the",
+    "this",
+    "that",
+    "these",
+    "those",
+    "from",
+    "with",
+    "without",
+    "and",
+    "for",
+    "to",
+    "into",
+    "onto",
+    "should",
+    "will",
+    "can",
+    "must",
+    "have",
+    "has",
+    "had",
+    "been",
+    "all",
+    "any",
+    "not",
+    "component",
+    "function",
+    "utility",
+    "class",
+    "module",
+    "service",
+    "process",
+    "user",
+    "input",
+    "commands",
+    "application",
+    "existing",
+    "backend",
+    "database",
+    "validation",
+    "authentication",
+    "patterns",
+    "pattern",
+    "layer",
+    "security",
+    "enhanced",
+    "error",
+    "logging",
+    "integrated",
+    "around",
+    "communication",
+    "configuration",
+    "endpoints",
+    "system",
+    "code",
+    "schema",
+    "synchronization",
+    "client",
+    "billing",
+    "model",
+    "models",
+    "import",
+    "imports",
+    "imported",
+    "export",
+    "exports",
+    "exported",
+    "const",
+    "let",
+    "var",
+    "type",
+    "interface",
+    "true",
+    "false",
 }
 
 
@@ -130,14 +240,43 @@ def extract_obligation_queries(obligation) -> list[tuple[str, ObligationStatus, 
     queries: list[tuple[str, ObligationStatus, str]] = []
 
     # 1. Deterministic contradiction/verification patterns (synthetic & fixture rules)
-    if any(token in statement_lower for token in {"multiple refund", "unique refund", "refund uniqueness"}):
+    if any(
+        token in statement_lower
+        for token in {"multiple refund", "unique refund", "refund uniqueness"}
+    ):
         queries.append(("unique: true", ObligationStatus.DISPROVED, "Schema uniqueness constraint"))
-    if "idempotency" in statement_lower and any(token in statement_lower for token in {"partial refund", "amount is not part"}):
-        queries.append(("partial refund amount is not part", ObligationStatus.DISPROVED, "Idempotency key constraint"))
+    if "idempotency" in statement_lower and any(
+        token in statement_lower for token in {"partial refund", "amount is not part"}
+    ):
+        queries.append(
+            (
+                "partial refund amount is not part",
+                ObligationStatus.DISPROVED,
+                "Idempotency key constraint",
+            )
+        )
     if "ledger" in statement_lower or "captured_amount" in statement_lower:
-        queries.append(("return -event.captured_amount", ObligationStatus.DISPROVED, "Ledger calculation"))
-    if any(token in statement_lower for token in {"payment provider", "refund provider", "accepts positive", "positive amount", "provider accepts", "accepts a refund"}):
-        queries.append(("refund amount must be positive", ObligationStatus.VERIFIED, "Provider accepts positive amount"))
+        queries.append(
+            ("return -event.captured_amount", ObligationStatus.DISPROVED, "Ledger calculation")
+        )
+    if any(
+        token in statement_lower
+        for token in {
+            "payment provider",
+            "refund provider",
+            "accepts positive",
+            "positive amount",
+            "provider accepts",
+            "accepts a refund",
+        }
+    ):
+        queries.append(
+            (
+                "refund amount must be positive",
+                ObligationStatus.VERIFIED,
+                "Provider accepts positive amount",
+            )
+        )
 
     # 2. Extract primary symbols
     for sym in _extract_primary_obligation_symbols(obligation):
@@ -154,7 +293,9 @@ def extract_obligation_queries(obligation) -> list[tuple[str, ObligationStatus, 
                 queries.append((t_clean, ObligationStatus.VERIFIED, f"Hint token `{t_clean}`"))
         # If single or two-word hint (e.g. "mongoose", "Schema", "user balance")
         if len(clean_hint.split()) <= 2 and clean_hint.lower() not in STOP_WORDS:
-            queries.append((clean_hint, ObligationStatus.VERIFIED, f"Verification hint {clean_hint}"))
+            queries.append(
+                (clean_hint, ObligationStatus.VERIFIED, f"Verification hint {clean_hint}")
+            )
 
     # Deduplicate while preserving priority order
     seen = set()
@@ -169,10 +310,20 @@ def extract_obligation_queries(obligation) -> list[tuple[str, ObligationStatus, 
 
 
 UNVERIFIABLE_QUALITATIVE_TERMS = [
-    "reliable", "reliability", "secure", "secures", "securing", "secured",
-    "correctly implemented", "correct implementation", "properly integrated",
-    "proper integration", "backward compatible", "backward compatibility",
-    "robust", "foolproof"
+    "reliable",
+    "reliability",
+    "secure",
+    "secures",
+    "securing",
+    "secured",
+    "correctly implemented",
+    "correct implementation",
+    "properly integrated",
+    "proper integration",
+    "backward compatible",
+    "backward compatibility",
+    "robust",
+    "foolproof",
 ]
 
 
@@ -183,11 +334,35 @@ def _is_genuine_human_authority_obligation(obligation) -> bool:
     # If the statement explicitly mentions code identifiers, symbols, files, imports, APIs, or parameters:
     # it is a technical claim, NOT a human policy decision.
     technical_indicators = [
-        ".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".yaml", ".yml",
-        "import", "export", "function", "component", "class", "const",
-        "endpoint", "grpc", "protobuf", "schema", "model", "parameter",
-        "token", "identifier", "method", "variable", "route", "handler",
-        "interface", "type", "@/"
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".py",
+        ".json",
+        ".yaml",
+        ".yml",
+        "import",
+        "export",
+        "function",
+        "component",
+        "class",
+        "const",
+        "endpoint",
+        "grpc",
+        "protobuf",
+        "schema",
+        "model",
+        "parameter",
+        "token",
+        "identifier",
+        "method",
+        "variable",
+        "route",
+        "handler",
+        "interface",
+        "type",
+        "@/",
     ]
     if any(ind in statement_lower for ind in technical_indicators):
         return False
@@ -203,13 +378,25 @@ def _is_genuine_human_authority_obligation(obligation) -> bool:
 
     # Check for genuine business policy keywords
     business_keywords = [
-        "retention policy", "retain for", "retained for", "deleted after",
-        "days", "pricing", "legal", "compliance", "terms of service",
-        "gdpr", "sla", "approval", "product owner", "contractual",
-        "business policy", "human decision", "manual review"
+        "retention policy",
+        "retain for",
+        "retained for",
+        "deleted after",
+        "days",
+        "pricing",
+        "legal",
+        "compliance",
+        "terms of service",
+        "gdpr",
+        "sla",
+        "approval",
+        "product owner",
+        "contractual",
+        "business policy",
+        "human decision",
+        "manual review",
     ]
     return any(kw in statement_lower for kw in business_keywords)
-
 
 
 def check_evidence_relevance(obligation, path: str, snippet: str, matched_query: str) -> bool:
@@ -224,7 +411,13 @@ def check_evidence_relevance(obligation, path: str, snippet: str, matched_query:
         return True
     if "idempotency" in statement_lower and "partial refund amount is not part" in snippet_lower:
         return True
-    if any(token in statement_lower for token in {"positive", "provider accepts", "accepts a refund"}) and "refund amount must be positive" in snippet_lower:
+    if (
+        any(
+            token in statement_lower
+            for token in {"positive", "provider accepts", "accepts a refund"}
+        )
+        and "refund amount must be positive" in snippet_lower
+    ):
         return True
     if "ledger" in statement_lower and "return -event.captured_amount" in snippet_lower:
         return True
@@ -266,9 +459,18 @@ def check_evidence_sufficiency(obligation, path: str, snippet: str, matched_quer
 
     # 2. Call / Invocation / Usage claims
     is_call_claim = any(
-        kw in statement_lower for kw in [
-            "invok", "calls ", "called", "calling", "execut", "triggers",
-            "trigger", "handles submitted", "when handling", "processes input"
+        kw in statement_lower
+        for kw in [
+            "invok",
+            "calls ",
+            "called",
+            "calling",
+            "execut",
+            "triggers",
+            "trigger",
+            "handles submitted",
+            "when handling",
+            "processes input",
         ]
     )
     if is_call_claim:
@@ -284,7 +486,8 @@ def check_evidence_sufficiency(obligation, path: str, snippet: str, matched_quer
 
     # 3. Component Wrapping / Provider claim
     is_wrapping_claim = any(
-        kw in statement_lower for kw in ["wraps", "wrapping", "wrapped", "nested inside", "encloses"]
+        kw in statement_lower
+        for kw in ["wraps", "wrapping", "wrapped", "nested inside", "encloses"]
     ) or ("<" in obligation.statement and ">" in obligation.statement)
     if is_wrapping_claim:
         has_jsx_tag = bool(re.search(r"<\s*[A-Z][A-Za-z0-9_]*", snippet))
@@ -370,9 +573,11 @@ class VerificationWorkflow:
         # Establish code-backed facts before pausing for product/operational authority
         ordered_obligations = sorted(
             obligations,
-            key=lambda item: item.category
-            in {ObligationCategory.BUSINESS_RULE, ObligationCategory.CROSS_SERVICE}
-            and _is_genuine_human_authority_obligation(item),
+            key=lambda item: (
+                item.category
+                in {ObligationCategory.BUSINESS_RULE, ObligationCategory.CROSS_SERVICE}
+                and _is_genuine_human_authority_obligation(item)
+            ),
         )
         for obligation in ordered_obligations:
             if obligation.status != ObligationStatus.PENDING:
@@ -381,15 +586,25 @@ class VerificationWorkflow:
             run.current_obligation_id = obligation.id
             obligation.status = ObligationStatus.VERIFYING
             await self.verification.update_obligation(obligation)
-            await self._event(run.id, "obligation_started", f"Investigating obligation: {obligation.statement[:80]}")
+            await self._event(
+                run.id,
+                "obligation_started",
+                f"Investigating obligation: {obligation.statement[:80]}",
+            )
             if run.iteration_count > self.settings.verification_max_iterations:
                 obligation.status = ObligationStatus.INCONCLUSIVE
-                obligation.proposal_metadata["inconclusive_reason"] = "Verification iteration limit reached"
-                await self._event(run.id, "obligation_completed", "Obligation became INCONCLUSIVE (iteration limit)")
-            elif (
-                obligation.category in {ObligationCategory.BUSINESS_RULE, ObligationCategory.CROSS_SERVICE}
-                and _is_genuine_human_authority_obligation(obligation)
-            ):
+                obligation.proposal_metadata["inconclusive_reason"] = (
+                    "Verification iteration limit reached"
+                )
+                await self._event(
+                    run.id,
+                    "obligation_completed",
+                    "Obligation became INCONCLUSIVE (iteration limit)",
+                )
+            elif obligation.category in {
+                ObligationCategory.BUSINESS_RULE,
+                ObligationCategory.CROSS_SERVICE,
+            } and _is_genuine_human_authority_obligation(obligation):
                 obligation.status = ObligationStatus.HUMAN_REQUIRED
                 question = HumanQuestion(
                     run_id=run.id,
@@ -425,8 +640,14 @@ class VerificationWorkflow:
         """A bounded, deterministic repository investigation with relevance and sufficiency guards."""
         if run.tool_call_count >= self.settings.verification_max_tool_calls:
             obligation.status = ObligationStatus.INCONCLUSIVE
-            obligation.proposal_metadata["inconclusive_reason"] = "Investigation tool budget reached"
-            await self._event(run.id, "obligation_completed", "Obligation became INCONCLUSIVE (tool budget reached)")
+            obligation.proposal_metadata["inconclusive_reason"] = (
+                "Investigation tool budget reached"
+            )
+            await self._event(
+                run.id,
+                "obligation_completed",
+                "Obligation became INCONCLUSIVE (tool budget reached)",
+            )
             return
 
         tools = RepositoryTools(self.runs, self.verification, run_id=run.id)
@@ -437,7 +658,13 @@ class VerificationWorkflow:
 
         # If no queries derived, do a lexical match of statement prefix
         if not bounded_terms:
-            bounded_terms = [(obligation.statement[:40], ObligationStatus.VERIFIED, "Lexical match for statement")]
+            bounded_terms = [
+                (
+                    obligation.statement[:40],
+                    ObligationStatus.VERIFIED,
+                    "Lexical match for statement",
+                )
+            ]
 
         # If symbol category, try find_symbol first
         if obligation.category == ObligationCategory.SYMBOL:
@@ -445,11 +672,15 @@ class VerificationWorkflow:
             for sym in symbol_candidates:
                 try:
                     await self._event(run.id, "tool_started", f"Searching symbols for '{sym}'")
-                    symbols = await tools.find_symbol(FindSymbolInput(snapshot_id=run.snapshot_id, query=sym, limit=1))
+                    symbols = await tools.find_symbol(
+                        FindSymbolInput(snapshot_id=run.snapshot_id, query=sym, limit=1)
+                    )
                     run.tool_call_count += 1
                     if symbols:
                         sym_match = symbols[0]
-                        if not check_evidence_sufficiency(obligation, sym_match["path"], sym_match.get("qualified_name", ""), sym):
+                        if not check_evidence_sufficiency(
+                            obligation, sym_match["path"], sym_match.get("qualified_name", ""), sym
+                        ):
                             continue
                         tool_doc = await self.verification.database.tool_runs.find_one(
                             {"run_id": run.id, "tool_name": "find_symbol"},
@@ -470,9 +701,19 @@ class VerificationWorkflow:
                         await EvidenceAuthority(self.verification).validate(evidence.id)
                         obligation.evidence_ids.append(evidence.id)
                         obligation.status = ObligationStatus.VERIFIED
-                        await self._event(run.id, "tool_completed", f"Found symbol '{sym_match['qualified_name']}' in {sym_match['path']}")
-                        await self._event(run.id, "evidence_added", f"Server-issued symbol evidence recorded: {evidence.id}")
-                        await self._event(run.id, "obligation_completed", "Obligation became VERIFIED")
+                        await self._event(
+                            run.id,
+                            "tool_completed",
+                            f"Found symbol '{sym_match['qualified_name']}' in {sym_match['path']}",
+                        )
+                        await self._event(
+                            run.id,
+                            "evidence_added",
+                            f"Server-issued symbol evidence recorded: {evidence.id}",
+                        )
+                        await self._event(
+                            run.id, "obligation_completed", "Obligation became VERIFIED"
+                        )
                         return
                 except Exception:
                     pass
@@ -481,7 +722,9 @@ class VerificationWorkflow:
         for query, terminal, desc in bounded_terms:
             if run.tool_call_count >= self.settings.verification_max_tool_calls:
                 break
-            await self._event(run.id, "tool_started", f"Running bounded lexical search for '{query}'")
+            await self._event(
+                run.id, "tool_started", f"Running bounded lexical search for '{query}'"
+            )
             try:
                 matches = await tools.search_code_lexical(
                     SearchCodeInput(snapshot_id=run.snapshot_id, query=query, limit=1)
@@ -504,7 +747,9 @@ class VerificationWorkflow:
                 matched_snippet = "\n".join(lines[start_l - 1 : end_l])
 
                 # Guard: Verify sufficiency for THIS specific atomic proposition
-                if not check_evidence_sufficiency(obligation, match["path"], matched_snippet, query):
+                if not check_evidence_sufficiency(
+                    obligation, match["path"], matched_snippet, query
+                ):
                     # Candidate match does not SUFFICIENTLY prove this proposition
                     continue
 
@@ -520,7 +765,9 @@ class VerificationWorkflow:
                     run_id=run.id,
                     obligation_id=obligation.id,
                     matched_query=query,
-                    relationship="CONTRADICTS" if terminal == ObligationStatus.DISPROVED else "SUPPORTS",
+                    relationship="CONTRADICTS"
+                    if terminal == ObligationStatus.DISPROVED
+                    else "SUPPORTS",
                     tool_run_id=tool_doc["id"] if tool_doc else "tool-search-code-lexical",
                     path=match["path"],
                     line_start=start_l,
@@ -534,10 +781,14 @@ class VerificationWorkflow:
                     obligation.evidence_ids.append(evidence.id)
                 obligation.status = terminal
                 await self._event(
-                    run.id, "tool_completed", f"Repository tool returned source fact in {match['path']}"
+                    run.id,
+                    "tool_completed",
+                    f"Repository tool returned source fact in {match['path']}",
                 )
                 await self._event(
-                    run.id, "evidence_added", f"Server-issued source evidence was recorded: {evidence.id}"
+                    run.id,
+                    "evidence_added",
+                    f"Server-issued source evidence was recorded: {evidence.id}",
                 )
                 await self._event(run.id, "obligation_completed", f"Obligation became {terminal}")
                 return
@@ -557,8 +808,14 @@ class VerificationWorkflow:
 
         # If bounded investigation completes with no sufficient matches:
         obligation.status = ObligationStatus.INCONCLUSIVE
-        obligation.proposal_metadata["inconclusive_reason"] = "No sufficient repository evidence found within investigation budget"
-        await self._event(run.id, "obligation_completed", "Obligation became INCONCLUSIVE: No sufficient repository evidence found within investigation budget")
+        obligation.proposal_metadata["inconclusive_reason"] = (
+            "No sufficient repository evidence found within investigation budget"
+        )
+        await self._event(
+            run.id,
+            "obligation_completed",
+            "Obligation became INCONCLUSIVE: No sufficient repository evidence found within investigation budget",
+        )
 
     async def _finalize(self, run) -> None:
         obligations = await self.verification.list_run_obligations(run.id)

@@ -22,11 +22,11 @@ def verify_tenant_project_access(project: dict | Any, session: dict | None) -> N
     if proj_inst_id is not None:
         if proj_inst_id != session.get("installation_id"):
             from fastapi import HTTPException, status
+
             raise HTTPException(status.HTTP_404_NOT_FOUND, "resource not found")
         return
     owner_id = proj_dict.get("owner_id")
     if owner_id and owner_id != session.get("account_login"):
         from fastapi import HTTPException, status
+
         raise HTTPException(status.HTTP_404_NOT_FOUND, "resource not found")
-
-

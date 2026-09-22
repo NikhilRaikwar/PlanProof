@@ -111,7 +111,11 @@ async def _resolve_run_tools(database, run: VerificationRun) -> tuple[list[dict]
     if evidence_ids:
         ev_cursor = database.evidence.find({"id": {"$in": evidence_ids}})
         source_tool_ids = list(
-            {item["source_tool_run_id"] async for item in ev_cursor if item.get("source_tool_run_id")}
+            {
+                item["source_tool_run_id"]
+                async for item in ev_cursor
+                if item.get("source_tool_run_id")
+            }
         )
         if source_tool_ids:
             legacy_cursor = database.tool_runs.find({"id": {"$in": source_tool_ids}}).sort(
@@ -194,7 +198,9 @@ async def create_verification_run(
 
     if not session:
         if str(project.data_scope) == "USER" or project.github_installation_id or project.owner_id:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authentication required to verify project")
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, "authentication required to verify project"
+            )
     else:
         await _verify_tenant_project_access(project.model_dump(), session)
 

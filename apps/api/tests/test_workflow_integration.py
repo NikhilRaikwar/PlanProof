@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 from uuid import uuid4
 
@@ -29,7 +28,7 @@ from app.repositories.projects import ProjectsRepository
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
 from app.workflow.engine import VerificationWorkflow
-from app.workflow.worker import _execute, execute_verification_run
+from app.workflow.worker import _execute
 
 
 @pytest.mark.integration

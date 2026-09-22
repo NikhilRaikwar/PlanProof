@@ -1,7 +1,8 @@
 import hashlib
 import hmac
-import pytest
 from datetime import UTC, datetime, timedelta
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
@@ -50,6 +51,7 @@ async def test_workspace_projects_excludes_demo_by_default() -> None:
 
     account = f"test-user-{new_id()[:8]}"
     import random
+
     installation_id = random.randint(100_000, 999_999)
     now = datetime.now(UTC)
 
@@ -210,7 +212,9 @@ async def test_tenant_isolation_cross_installation() -> None:
         assert res_snap.status_code == 404
 
         # GET /projects/{proj1.id}/snapshots MUST return 404
-        res_psnap = client.get(f"/v1/projects/{proj1.id}/snapshots", cookies={"planproof_session": cookie2})
+        res_psnap = client.get(
+            f"/v1/projects/{proj1.id}/snapshots", cookies={"planproof_session": cookie2}
+        )
         assert res_psnap.status_code == 404
 
         # GET /verification-runs?project_id={proj1.id} MUST return 404
@@ -230,7 +234,9 @@ async def test_tenant_isolation_cross_installation() -> None:
         assert data["plan"]["change_request"] == "Fix critical bug"
 
         # User 1 accesses their own snapshots: MUST return 200
-        res_snap_auth = client.get(f"/v1/snapshots/{snap1.id}", cookies={"planproof_session": cookie1})
+        res_snap_auth = client.get(
+            f"/v1/snapshots/{snap1.id}", cookies={"planproof_session": cookie1}
+        )
         assert res_snap_auth.status_code == 200
         assert res_snap_auth.json()["id"] == snap1.id
 

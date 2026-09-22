@@ -175,15 +175,17 @@ class RepositoryTools:
         normalized = data.model_dump(mode="json")
         safe_summary: dict = {}
         if hasattr(data, "query"):
-            safe_summary["query"] = getattr(data, "query")
-        if hasattr(data, "path") and getattr(data, "path"):
-            safe_summary["path"] = getattr(data, "path")
-        if hasattr(data, "name") and getattr(data, "name"):
-            safe_summary["name"] = getattr(data, "name")
+            safe_summary["query"] = data.query
+        if hasattr(data, "path") and data.path:
+            safe_summary["path"] = data.path
+        if hasattr(data, "name") and data.name:
+            safe_summary["name"] = data.name
         if hasattr(data, "start_line") and hasattr(data, "end_line"):
-            safe_summary["line_range"] = f"{getattr(data, 'start_line')}:{getattr(data, 'end_line')}"
+            safe_summary["line_range"] = (
+                f"{data.start_line}:{data.end_line}"
+            )
         if hasattr(data, "limit"):
-            safe_summary["limit"] = getattr(data, "limit")
+            safe_summary["limit"] = data.limit
 
         item = ToolRun(
             snapshot_id=data.snapshot_id,

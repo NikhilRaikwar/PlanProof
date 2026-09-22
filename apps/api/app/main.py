@@ -50,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.mongo = mongo
     app.state.redis = redis
     app.state.settings = runtime_settings
+
     @app.middleware("http")
     async def production_boundaries(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID", str(uuid4()))[:128]

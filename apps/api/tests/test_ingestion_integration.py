@@ -101,8 +101,10 @@ async def test_ready_snapshot_is_reused_after_new_mongo_client() -> None:
         await ensure_indexes(mongo.database())
         project = Project.from_create_request(
             CreateProjectRequest(
-                name="idempotency", owner_id=f"itest-{uuid4().hex}",
-                repository_source_type=RepositorySourceType.SEEDED, fixture_id="partial-refunds-v1"
+                name="idempotency",
+                owner_id=f"itest-{uuid4().hex}",
+                repository_source_type=RepositorySourceType.SEEDED,
+                fixture_id="partial-refunds-v1",
             )
         )
         await ProjectsRepository(mongo).create(project)

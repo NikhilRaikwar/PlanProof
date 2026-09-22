@@ -9,16 +9,16 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
-import os
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import quote
 
 import httpx
 import jwt
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -355,6 +355,7 @@ async def logout(
             {"token_hash": hashlib.sha256(token.encode()).hexdigest()}
         )
     from fastapi.responses import JSONResponse
+
     response = JSONResponse({"connected": False})
     response.delete_cookie(_SESSION_COOKIE, path="/")
     return response
@@ -521,4 +522,3 @@ async def create_connected_snapshot(
     )
     await records.create_snapshot(snapshot)
     return await SnapshotIngestionService(records).ingest(snapshot.id, source)
-
