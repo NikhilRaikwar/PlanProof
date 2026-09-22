@@ -27,6 +27,14 @@ class ValidatorResult(StrEnum):
     UNSUPPORTED = "UNSUPPORTED"
 
 
+class SemanticRole(StrEnum):
+    CURRENT_STATE_ASSUMPTION = "CURRENT_STATE_ASSUMPTION"
+    EXISTING_DEPENDENCY = "EXISTING_DEPENDENCY"
+    PROPOSED_ACTION = "PROPOSED_ACTION"
+    CONSTRAINT = "CONSTRAINT"
+    HUMAN_DECISION = "HUMAN_DECISION"
+
+
 class ObligationCategory(StrEnum):
     SYMBOL = "SYMBOL"
     DEPENDENCY = "DEPENDENCY"
@@ -97,6 +105,7 @@ class ProofObligation(BaseModel):
     source_plan_step_ids: list[str] = Field(default_factory=list)
     statement: str = Field(min_length=1, max_length=2000)
     normalized_statement: str
+    semantic_role: SemanticRole = SemanticRole.CURRENT_STATE_ASSUMPTION
     category: ObligationCategory
     criticality: Criticality
     status: ObligationStatus = ObligationStatus.PENDING

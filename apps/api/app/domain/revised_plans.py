@@ -58,6 +58,8 @@ class RevisedPlanStep(BaseModel):
 
     existing_target_files: list[str] = Field(default_factory=list)
     proposed_new_files: list[str] = Field(default_factory=list)
+    existing_target_symbols: list[str] = Field(default_factory=list)
+    proposed_new_symbols: list[str] = Field(default_factory=list)
     target_symbols: list[str] = Field(default_factory=list)
 
     confidence_basis: ConfidenceBasis

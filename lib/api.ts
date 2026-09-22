@@ -166,6 +166,8 @@ export type RevisedPlanStep = {
   unresolved_dependency_ids: string[]
   existing_target_files: string[]
   proposed_new_files: string[]
+  existing_target_symbols?: string[]
+  proposed_new_symbols?: string[]
   target_symbols: string[]
   confidence_basis: 'EVIDENCE_BACKED' | 'PARTIALLY_EVIDENCED' | 'HUMAN_CONFIRMED' | 'UNRESOLVED'
 }

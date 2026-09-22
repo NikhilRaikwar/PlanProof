@@ -8,7 +8,13 @@ from langgraph.graph import END, START, StateGraph
 from app.core.config import Settings
 from app.domain.revised_plans import RevisedPlanStatus
 from app.domain.runs import HumanQuestion, RunEvent, VerificationRunStatus
-from app.domain.verification import ObligationCategory, ObligationStatus, ToolRun, ToolRunStatus
+from app.domain.verification import (
+    ObligationCategory,
+    ObligationStatus,
+    SemanticRole,
+    ToolRun,
+    ToolRunStatus,
+)
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
 from app.services.evidence import EvidenceAuthority
@@ -397,53 +403,84 @@ def _is_genuine_human_authority_obligation(obligation) -> bool:
         ".json",
         ".yaml",
         ".yml",
-        "import",
-        "export",
-        "function",
-        "component",
-        "class",
-        "const",
-        "let",
-        "var",
+        ".sql",
+        "import ",
+        "export ",
+        "function ",
+        "component ",
+        "class ",
+        "const ",
+        "let ",
+        "var ",
         "endpoint",
         "route",
         "schema",
-        "field",
         "database",
         "mongo",
         "redis",
         "postgres",
-        "sql",
-        "param",
-        "query",
-        "body",
         "header",
         "cookie",
-        "session",
-        "token",
-        "key",
-        "api",
         "payload",
     ]
     if any(ind in statement_lower for ind in technical_indicators):
         return False
 
     human_authority_indicators = [
+        "retention",
         "retention period",
         "retention policy",
         "how long to keep",
         "delete history after",
+        "pricing",
         "pricing policy",
         "business tier",
+        "approval",
         "approval required",
+        "user approval",
+        "consent",
+        "compliance",
         "legal review",
+        "sla",
         "sla guarantee",
         "third-party contract",
         "business authority",
         "product owner",
         "management approval",
+        "policy",
     ]
     return any(ind in statement_lower for ind in human_authority_indicators)
+
+
+def classify_obligation_routing(obligation) -> str:
+    """
+    Classify semantic role routing:
+    - 'PROPOSED_ACTION': Preserved for revised-plan synthesis only; never investigated as an existing repo fact.
+    - 'HUMAN_AUTHORITY': Routed strictly to human authority workflow (creates HumanQuestion).
+    - 'REPO_INVESTIGATION': Routed to repository investigation proof tools.
+    """
+    role = getattr(obligation, "semantic_role", None)
+    if role == SemanticRole.PROPOSED_ACTION:
+        return "PROPOSED_ACTION"
+
+    if role == SemanticRole.HUMAN_DECISION:
+        return "HUMAN_AUTHORITY"
+
+    if role == SemanticRole.CONSTRAINT:
+        if _is_genuine_human_authority_obligation(obligation) or obligation.category in {
+            ObligationCategory.BUSINESS_RULE,
+            ObligationCategory.CROSS_SERVICE,
+        }:
+            return "HUMAN_AUTHORITY"
+        return "REPO_INVESTIGATION"
+
+    if obligation.category in {
+        ObligationCategory.BUSINESS_RULE,
+        ObligationCategory.CROSS_SERVICE,
+    } and _is_genuine_human_authority_obligation(obligation):
+        return "HUMAN_AUTHORITY"
+
+    return "REPO_INVESTIGATION"
 
 
 def check_evidence_relevance(obligation, path: str, snippet: str, matched_query: str) -> bool:
@@ -672,15 +709,28 @@ class VerificationWorkflow:
         ordered_obligations = sorted(
             obligations,
             key=lambda item: (
-                item.category
-                in {ObligationCategory.BUSINESS_RULE, ObligationCategory.CROSS_SERVICE}
-                and _is_genuine_human_authority_obligation(item)
+                classify_obligation_routing(item) == "HUMAN_AUTHORITY"
             ),
         )
 
         for obligation in ordered_obligations:
             if obligation.status != ObligationStatus.PENDING:
                 continue
+
+            routing = classify_obligation_routing(obligation)
+
+            if routing == "PROPOSED_ACTION":
+                # Preserved for revised-plan synthesis only; NEVER investigated as an already-existing repository fact!
+                obligation.proposal_metadata["routing"] = "PROPOSED_ACTION_SYNTHESIS_ONLY"
+                await self._event(
+                    run.id,
+                    "obligation_preserved",
+                    f"Preserved proposed action for plan revision synthesis: {obligation.statement[:80]}",
+                )
+                await self.verification.update_obligation(obligation)
+                run.completed_obligation_ids.append(obligation.id)
+                continue
+
             run.iteration_count += 1
             run.current_obligation_id = obligation.id
             obligation.status = ObligationStatus.VERIFYING
@@ -700,10 +750,7 @@ class VerificationWorkflow:
                     "obligation_completed",
                     "Obligation became INCONCLUSIVE (iteration limit)",
                 )
-            elif obligation.category in {
-                ObligationCategory.BUSINESS_RULE,
-                ObligationCategory.CROSS_SERVICE,
-            } and _is_genuine_human_authority_obligation(obligation):
+            elif routing == "HUMAN_AUTHORITY":
                 obligation.status = ObligationStatus.HUMAN_REQUIRED
                 question = HumanQuestion(
                     run_id=run.id,
@@ -1034,7 +1081,19 @@ class VerificationWorkflow:
 
     async def _finalize(self, run, plan) -> None:
         obligations = await self.verification.list_run_obligations(run.id)
-        statuses = {item.status for item in obligations}
+        proof_obligations = [
+            ob
+            for ob in obligations
+            if getattr(ob, "semantic_role", None)
+            in {
+                SemanticRole.CURRENT_STATE_ASSUMPTION,
+                SemanticRole.EXISTING_DEPENDENCY,
+                SemanticRole.CONSTRAINT,
+                SemanticRole.HUMAN_DECISION,
+            }
+        ]
+        target_obligations = proof_obligations if proof_obligations else obligations
+        statuses = {item.status for item in target_obligations}
         run.status = VerificationRunStatus.FINALIZING
 
         all_ev_ids = []
@@ -1072,7 +1131,7 @@ class VerificationWorkflow:
             run.status = VerificationRunStatus.BLOCKED
         elif ObligationStatus.HUMAN_REQUIRED in statuses:
             run.status = VerificationRunStatus.HUMAN_DECISION_REQUIRED
-        elif obligations and statuses <= {ObligationStatus.VERIFIED}:
+        elif target_obligations and statuses <= {ObligationStatus.VERIFIED}:
             run.status = VerificationRunStatus.COMPLETE
         else:
             run.status = VerificationRunStatus.INCONCLUSIVE

@@ -50,6 +50,8 @@ class ModelRevisedPlanStep(BaseModel):
     unresolved_dependency_ids: list[str] = Field(default_factory=list)
     existing_target_files: list[str] = Field(default_factory=list)
     proposed_new_files: list[str] = Field(default_factory=list)
+    existing_target_symbols: list[str] = Field(default_factory=list)
+    proposed_new_symbols: list[str] = Field(default_factory=list)
     target_symbols: list[str] = Field(default_factory=list)
     confidence_basis: str = "UNRESOLVED"
 
@@ -95,7 +97,8 @@ class PlanRevisionService:
                         snapshot_id=snapshot_id,
                         obligation_id=ob.id,
                         obligation_status=ob.status,
-                        canonical_fact=f"Verified repository fact: {ob.statement}",
+                        semantic_role=getattr(ob, "semantic_role", None),
+                        canonical_fact=f"Present-state repository fact: {ob.statement}",
                         relationship=FactRelationship.SUPPORTS,
                         evidence_ids=ob.evidence_ids,
                         file_paths=paths,
@@ -115,6 +118,7 @@ class PlanRevisionService:
                         snapshot_id=snapshot_id,
                         obligation_id=ob.id,
                         obligation_status=ob.status,
+                        semantic_role=getattr(ob, "semantic_role", None),
                         canonical_fact=f"Contradicted candidate assumption: {ob.statement}",
                         relationship=FactRelationship.CONTRADICTS,
                         evidence_ids=ob.counter_evidence_ids,
@@ -222,22 +226,66 @@ class PlanRevisionService:
             }
 
             system_instruction = (
-                "You are an expert engineering reviewer. Synthesize an evidence-grounded updated implementation plan. "
-                "CRITICAL INVARIANTS: \n"
-                "1. Every factual statement must cite a valid `basis_fact_id` from the provided authorized_facts.\n"
-                "2. If a candidate plan step contradicts repository facts or is redundant, mark it MODIFY or REMOVE with evidence rationale.\n"
-                "3. If a step relies on existing repository files, list only verified snapshot files under existing_target_files.\n"
-                "4. If a step requires external business authority or lacks evidence, label it UNRESOLVED."
+                "You are an expert engineering reviewer. Synthesize an evidence-grounded updated implementation plan.\n"
+                "CRITICAL SEMANTIC RULES:\n"
+                "1. Distinguish present repository state from planned future actions. NEVER state that a proposed replacement "
+                "or new component already exists in the repository unless verified in authorized_facts.\n"
+                "2. `existing_target_files`: MUST list only verified snapshot files that exist now in the repository.\n"
+                "3. `proposed_new_files`: MUST list any new files that need to be created.\n"
+                "4. `existing_target_symbols`: MUST list only symbols that currently exist in the repository snapshot.\n"
+                "5. `proposed_new_symbols`: MUST list any new symbols to be created/introduced.\n"
+                "6. `unresolved_dependency_ids`: MUST list any unresolved dependencies or obligations lacking repository evidence.\n"
+                "7. Every factual statement or modification must cite a valid `basis_fact_id` from the provided authorized_facts.\n"
+                "8. If a candidate plan step contradicts repository facts or is redundant, mark it MODIFY or REMOVE with evidence rationale.\n"
+                "9. If a step relies on unverified dependencies or requires human authority, mark confidence_basis as UNRESOLVED."
             )
 
+            response: ModelRevisedPlanResponse | None = None
+            validation_error: str | None = None
+            max_attempts = 2
+
             try:
-                response = await self.gateway.complete_structured(
-                    prompt=json.dumps(prompt_payload, indent=2),
-                    schema=ModelRevisedPlanResponse,
-                    system=system_instruction,
-                    run_id=run_id,
-                    purpose="PLAN_REVISION",
-                )
+                for attempt in range(1, max_attempts + 1):
+                    current_payload = dict(prompt_payload)
+                    if validation_error:
+                        current_payload["semantic_validation_error"] = (
+                            f"Your previous revision proposal violated semantic facts: {validation_error}. "
+                            f"Fix all structured fields and prose to strictly adhere to authorized facts and snapshot files."
+                        )
+
+                    try:
+                        candidate_response = await self.gateway.complete_structured(
+                            prompt=json.dumps(current_payload, indent=2),
+                            schema=ModelRevisedPlanResponse,
+                            system=system_instruction,
+                            run_id=run_id,
+                            purpose="PLAN_REVISION",
+                        )
+                    except Exception as exc:
+                        logger.warning(f"Plan revision model synthesis attempt {attempt} failed safely: {exc}")
+                        break
+
+                    if not candidate_response:
+                        break
+
+                    # Validate candidate response structured fields against snapshot
+                    validation_issues = []
+                    for step in candidate_response.implementation_plan:
+                        for fpath in step.existing_target_files:
+                            clean_p = fpath.strip().replace("\\", "/")
+                            if clean_p and clean_p not in snapshot_files:
+                                validation_issues.append(
+                                    f"File '{clean_p}' in step {step.order} was listed in existing_target_files, but does not exist in the snapshot"
+                                )
+
+                    if validation_issues and attempt < max_attempts:
+                        validation_error = "; ".join(validation_issues)
+                        logger.info(f"Plan revision attempt {attempt} semantic validation failed: {validation_error}. Retrying bounded...")
+                        continue
+
+                    response = candidate_response
+                    break
+
                 if response:
                     executive_summary = response.executive_summary[:1000]
 
@@ -279,15 +327,22 @@ class PlanRevisionService:
                         existing_files: list[str] = []
                         suggested_files: list[str] = list(raw_step.proposed_new_files)
 
+                        step_has_invalid_existing_file = False
                         for fpath in raw_step.existing_target_files:
                             clean_fpath = fpath.strip().replace("\\", "/")
                             if clean_fpath in snapshot_files:
                                 existing_files.append(clean_fpath)
                             else:
+                                step_has_invalid_existing_file = True
                                 suggested_files.append(clean_fpath)
 
+                        if step_has_invalid_existing_file:
+                            stype = PlanChangeType.UNRESOLVED
+
                         # Determine strict confidence basis
-                        if valid_fact_ids and any(fact_map[fid].relationship in {FactRelationship.SUPPORTS, FactRelationship.CONTRADICTS} for fid in valid_fact_ids):
+                        if step_has_invalid_existing_file:
+                            confidence = ConfidenceBasis.UNRESOLVED
+                        elif valid_fact_ids and any(fact_map[fid].relationship in {FactRelationship.SUPPORTS, FactRelationship.CONTRADICTS} for fid in valid_fact_ids):
                             confidence = ConfidenceBasis.EVIDENCE_BACKED
                         elif raw_step.supporting_human_decision_ids:
                             confidence = ConfidenceBasis.HUMAN_CONFIRMED
@@ -310,7 +365,9 @@ class PlanRevisionService:
                                 unresolved_dependency_ids=raw_step.unresolved_dependency_ids,
                                 existing_target_files=existing_files,
                                 proposed_new_files=suggested_files,
-                                target_symbols=raw_step.target_symbols,
+                                existing_target_symbols=raw_step.existing_target_symbols,
+                                proposed_new_symbols=raw_step.proposed_new_symbols,
+                                target_symbols=raw_step.target_symbols or (raw_step.existing_target_symbols + raw_step.proposed_new_symbols),
                                 confidence_basis=confidence,
                             )
                         )

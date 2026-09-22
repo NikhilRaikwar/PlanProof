@@ -22,6 +22,7 @@ class AuthorizedFact(BaseModel):
     obligation_id: str
     obligation_status: ObligationStatus
     canonical_fact: str
+    semantic_role: str = "CURRENT_STATE_ASSUMPTION"
     relationship: FactRelationship
     evidence_ids: list[str] = Field(default_factory=list)
     file_paths: list[str] = Field(default_factory=list)

@@ -282,3 +282,39 @@ async def test_plan_revision_synthesize_unavailable_when_no_model() -> None:
     assert "unavailable" in revised_plan.executive_summary.lower()
 
 
+def test_classify_obligation_routing() -> None:
+    from app.domain.verification import SemanticRole
+    from app.workflow.engine import classify_obligation_routing
+
+    # 1. PROPOSED_ACTION -> PROPOSED_ACTION (preserved for synthesis only)
+    ob_prop = _make_obligation("ob-p", "Replace PrivyProvider with CustomAuthProvider in app/providers.tsx")
+    ob_prop.semantic_role = SemanticRole.PROPOSED_ACTION
+    assert classify_obligation_routing(ob_prop) == "PROPOSED_ACTION"
+
+    # 2. HUMAN_DECISION -> HUMAN_AUTHORITY
+    ob_hum = _make_obligation("ob-h", "Choose 30-day retention period for customer conversations")
+    ob_hum.semantic_role = SemanticRole.HUMAN_DECISION
+    assert classify_obligation_routing(ob_hum) == "HUMAN_AUTHORITY"
+
+    # 3. CURRENT_STATE_ASSUMPTION -> REPO_INVESTIGATION
+    ob_curr = _make_obligation("ob-c", "app/providers.tsx imports PrivyProvider")
+    ob_curr.semantic_role = SemanticRole.CURRENT_STATE_ASSUMPTION
+    assert classify_obligation_routing(ob_curr) == "REPO_INVESTIGATION"
+
+    # 4. EXISTING_DEPENDENCY -> REPO_INVESTIGATION
+    ob_dep = _make_obligation("ob-d", "CustomAuthProvider exists in the repository")
+    ob_dep.semantic_role = SemanticRole.EXISTING_DEPENDENCY
+    assert classify_obligation_routing(ob_dep) == "REPO_INVESTIGATION"
+
+    # 5. Technical CONSTRAINT -> REPO_INVESTIGATION
+    ob_tech_c = _make_obligation("ob-tc", "Column user_id in schema users.sql is unique")
+    ob_tech_c.semantic_role = SemanticRole.CONSTRAINT
+    assert classify_obligation_routing(ob_tech_c) == "REPO_INVESTIGATION"
+
+    # 6. Business CONSTRAINT -> HUMAN_AUTHORITY
+    ob_biz_c = _make_obligation("ob-bc", "Data retention policy requires user approval before deletion")
+    ob_biz_c.semantic_role = SemanticRole.CONSTRAINT
+    assert classify_obligation_routing(ob_biz_c) == "HUMAN_AUTHORITY"
+
+
+

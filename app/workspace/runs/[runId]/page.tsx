@@ -661,7 +661,7 @@ export default function RunReportPage() {
               )}
             </div>
             <span style={{ fontSize: 12.5, color: '#64748B' }}>
-              Evidence-grounded implementation steps synthesized from verified immutable repository facts.
+              Evidence-grounded advisory output synthesized from verified immutable repository facts.
             </span>
           </div>
 
@@ -696,6 +696,14 @@ export default function RunReportPage() {
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 18 }}>
+            {/* Advisory disclaimer banner */}
+            <div style={{ padding: 10, borderRadius: 6, background: '#F8FAFC', border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#475569' }}>
+              <ShieldCheck size={14} color="#EA580C" />
+              <span>
+                <strong>Advisory Output:</strong> This revised plan is evidence-grounded advisory guidance. The repository facts and deterministic Gate Report above are authoritative.
+              </span>
+            </div>
+
             {/* Status Notice if Awaiting Human Decision */}
             {revisedPlan.status === 'AWAITING_HUMAN_DECISION' && (
               <div style={{ padding: 12, borderRadius: 6, background: '#FFFBEB', border: '1px solid #FDE68A', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#92400E' }}>
@@ -890,7 +898,49 @@ export default function RunReportPage() {
                                 fontSize: 11 
                               }}
                             >
-                              + {f} (new)
+                              + {f} (new file)
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Symbol Target Badges */}
+                      {((step.existing_target_symbols && step.existing_target_symbols.length > 0) || (step.proposed_new_symbols && step.proposed_new_symbols.length > 0)) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {step.existing_target_symbols?.map(s => (
+                            <span 
+                              key={s} 
+                              className="commit-mini-tag" 
+                              style={{ 
+                                background: '#F8FAFC', 
+                                color: '#0F172A', 
+                                borderColor: '#CBD5E1', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: 4, 
+                                fontSize: 10.5,
+                                fontFamily: 'var(--font-mono)'
+                              }}
+                            >
+                              sym: {s}
+                            </span>
+                          ))}
+                          {step.proposed_new_symbols?.map(s => (
+                            <span 
+                              key={s} 
+                              className="commit-mini-tag" 
+                              style={{ 
+                                background: '#FAF5FF', 
+                                color: '#6B21A8', 
+                                borderColor: '#E9D5FF', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: 4, 
+                                fontSize: 10.5,
+                                fontFamily: 'var(--font-mono)'
+                              }}
+                            >
+                              + sym: {s} (new)
                             </span>
                           ))}
                         </div>
