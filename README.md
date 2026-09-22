@@ -101,10 +101,10 @@ PlanProof converts unstructured engineering intent and candidate implementation 
 ```text
 GitHub Repository / Demo Fixture
   └──> Exact Commit SHA
-        └──> Immutable Snapshot (Hashed files + AST symbols)
+        └──> Immutable Snapshot (Hashed files + indexed symbols)
               └──> Change Request + Candidate Plan
                     └──> Proof Obligations (Structured Pydantic claims)
-                          ├──> Deterministic AST Validators
+                          ├──> Deterministic Validators
                           ├──> Bounded Repository Investigation Tools
                           └──> Server-Issued Evidence (Cryptographically bound)
                                        ├──> COMPLETE (All obligations verified)
@@ -618,20 +618,19 @@ See [docs/SECURITY.md](docs/SECURITY.md) for full security controls.
 PlanProof employs a layered, deterministic testing strategy:
 
 ```text
-├── Backend Unit & Safety Suite       -> 48 Tests (FastAPI, AST parsers, tool sandbox, security)
-├── Live Atlas & Redis Integration   -> 11 Tests (Real MongoDB indexes, Dramatiq worker execution)
-├── Frontend UI & State Isolation     -> 6 Tests (Playwright component & API boundary tests)
-├── GitHub App Live Smoke             -> 1 Test (Live token issuance & repository query)
-├── Seeded Real Production E2E        -> 1 Test (Full browser pre-flight verification in 17.9s)
+├── Backend Unit & Safety Suite       -> FastAPI, AST parsers, tool sandbox, security
+├── Live Atlas & Redis Integration   -> Real MongoDB indexes, Dramatiq worker execution
+├── Frontend UI & State Isolation     -> Playwright component & API boundary tests
+├── GitHub App Live Smoke             -> Live token issuance & repository query
+├── Seeded Real Production E2E        -> Full browser pre-flight verification
 └── Offline Evaluation Suite          -> 27 Versioned Cases (Fidelity, recall & regression gating)
 ```
 
-**Latest Validated Test Pass**:
-- Backend Tests: **59 / 59 Passed**
-- Frontend Playwright Tests: **8 / 8 Passed**
-- TypeScript Compilation: **0 Errors** (`tsc --noEmit`)
-- Production Bundle: **13 / 13 Routes Optimized** (`next build`)
-- Secret Scan: **0 Credentials Detected** (`npm run secret:scan`)
+**Continuous Validation in CI**:
+Current main is validated in GitHub Actions with:
+- frontend secret scan, TypeScript typecheck, production build, and Playwright UI suite
+- backend Ruff + pytest
+- deterministic agent-quality/evaluation safety suite
 
 ---
 
@@ -703,17 +702,17 @@ The workspace UI will be available at `http://localhost:3000`.
 
 ```bash
 # --- Frontend Quality & Security ---
-npm run secret:scan      # Automated scanner for leaked credentials (0 detected)
-npm run typecheck        # TypeScript strict verification (0 errors)
-npm run build            # Next.js 16 production build verification (13 routes)
-npm run test:ui          # Playwright UI & API state tests (6 passed)
-npm run test:e2e         # Playwright Seeded Real E2E verification test (1 passed)
+npm run secret:scan      # Automated scanner for leaked credentials
+npm run typecheck        # TypeScript strict verification
+npm run build            # Next.js 16 production build verification
+npm run test:ui          # Playwright UI & API state tests
+npm run test:e2e         # Playwright Seeded Real E2E verification test
 
 # --- Backend Unit, Integration & Lints ---
 cd apps/api
 uv run ruff check app tests      # Fast Python linter
-uv run pytest -q                 # Backend unit & safety suite (48 passed)
-uv run pytest -m integration -q  # Atlas & Redis integration tests (11 passed)
+uv run pytest -q                 # Backend unit & safety suite
+uv run pytest -m integration -q  # Atlas & Redis integration tests
 
 # --- Evaluation Harness & Regression Gating ---
 uv run pytest tests/test_evaluation_harness.py -q

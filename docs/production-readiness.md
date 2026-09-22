@@ -15,7 +15,7 @@
 | **Health Probe** | `/health/ready` | **HEALTHY** | Returns `{"status":"ok","mongo":"ok","redis":"ok"}` |
 | **Database** | MongoDB Atlas (`planproofapp`) | **HEALTHY** | 14 collections with unique & compound indexes verified |
 | **Queue / Cache** | Memorystore / Redis | **HEALTHY** | Task delivery, rate limiting, and deduplication verified |
-| **GitHub App** | `PlanProof Verification` (`5023064`) | **AUTHENTICATED**| Live verified for `@NikhilRaikwar` (Installation ID: `163541413`) |
+| **GitHub App** | `PlanProof Verification` | **AUTHENTICATED**| Live verified via GitHub App installation |
 | **Model Gateway** | OpenRouter (Primary) / AIMLAPI (Fallback) | **ACTIVE** | Server-side credentials, structured output validation |
 
 ---
@@ -31,15 +31,21 @@
 
 ## 3. Test & Evaluation Verification Results
 
+Current main is validated in GitHub Actions with:
+- frontend secret scan, TypeScript typecheck, production build, and Playwright UI suite
+- backend Ruff + pytest
+- deterministic agent-quality/evaluation safety suite
+
 ### Backend Test Suite (`apps/api`)
-- **Unit & Deterministic Suite**: **48 / 48 Passed** (`pytest -q`)
-- **Live Integration Suite**: **11 / 11 Passed** (`pytest -m integration -q`)
-- **Total Backend Coverage**: **59 / 59 Tests Passing**
+- **Unit & Safety Suite**: Verified via `pytest -q`
+- **Live Integration Suite**: Verified via `pytest -m integration -q`
+- **Code Quality**: Verified via `ruff check`
 
 ### Frontend Test Suite (`Next.js 16 App Router`)
-- **Typecheck**: **0 TypeScript Errors** (`npm run typecheck`)
-- **Production Build**: **13 / 13 Routes Compiled & Optimized** (`npm run build`)
-- **Playwright UI & Boundary Suite**: **6 / 6 Passed** (`npm run test:ui`)
+- **Typecheck**: `npm run typecheck` (`tsc --noEmit`)
+- **Production Build**: `npm run build` (`next build`)
+- **Playwright UI & Boundary Suite**: `npm run test:ui`
+- **Secret Scan**: `npm run secret:scan` (0 credentials detected)
 
 ### Evaluation Benchmark Harness (`evals/cases/v1`)
 - **Total Versioned Cases**: **27 Cases** spanning:

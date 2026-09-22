@@ -25,7 +25,8 @@ flowchart TD
 | Repository facts | Snapshot-scoped deterministic tools and validators |
 | Evidence IDs and provenance | Server-side evidence authority |
 | Obligation and final run status | Deterministic policy code |
-| Ambiguous claim extraction / next-action proposal | Structured model gateway |
+| Ambiguous claim extraction | Structured model gateway (proposal only) |
+| Investigation query planning | Deterministic verification engine |
 | Business or external-system intent | Persisted human question and answer |
 
 The model cannot execute shell commands, choose arbitrary paths, access the host filesystem, write MongoDB, create evidence, or override budgets and policy. Repository text is untrusted data even when it appears in model context.
