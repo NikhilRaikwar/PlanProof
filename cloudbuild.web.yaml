@@ -6,5 +6,8 @@ steps:
       - NEXT_PUBLIC_PLANPROOF_API_URL=${_API_URL}
       - --tag=${_IMAGE}
       - .
+substitutions:
+  _IMAGE: asia-south1-docker.pkg.dev/planproof-ai/planproof/web:latest
+  _API_URL: https://planproof-api-530622821497.asia-south1.run.app
 images:
   - ${_IMAGE}
