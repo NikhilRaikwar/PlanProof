@@ -1,10 +1,11 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Cookie, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_mongo
-from app.core.config import get_settings
+from app.api.dependencies import get_mongo, get_settings_dep, verify_tenant_project_access
+from app.api.github import get_optional_session
+from app.core.config import Settings, get_settings
 from app.db.mongo import MongoManager
 from app.domain.runs import PlanVersion
 from app.repositories.projects import ProjectsRepository
@@ -42,10 +43,17 @@ class ToolRequest(BaseModel):
 
 @router.post("/projects/{project_id}/plan-versions", response_model=PlanVersion)
 async def create_plan(
-    project_id: str, request: CreatePlanRequest, mongo: Annotated[MongoManager, Depends(get_mongo)]
+    project_id: str,
+    request: CreatePlanRequest,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
 ):
-    if not await ProjectsRepository(mongo).get(project_id):
+    session = await get_optional_session(mongo, settings, planproof_session)
+    project = await ProjectsRepository(mongo).get(project_id)
+    if not project:
         raise HTTPException(404, "project not found")
+    verify_tenant_project_access(project, session)
     records = RunRepository(mongo)
     count = await mongo.database().plan_versions.count_documents({"project_id": project_id})
     item = PlanVersion(project_id=project_id, version=count + 1, **request.model_dump())
@@ -57,7 +65,10 @@ async def extract(
     plan_version_id: str,
     request: ExtractRequest,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
 ):
+    session = await get_optional_session(mongo, settings, planproof_session)
     records = RunRepository(mongo)
     plan = await records.get_plan_version(plan_version_id)
     snapshot = await records.get_snapshot(request.snapshot_id)
@@ -68,6 +79,9 @@ async def extract(
         or snapshot.status != "READY"
     ):
         raise HTTPException(422, "plan and READY snapshot must belong to the same project")
+    project = await mongo.database().projects.find_one({"id": plan.project_id})
+    if project:
+        verify_tenant_project_access(project, session)
     repo = VerificationRepository(mongo)
     service = ObligationExtractionService(ProviderGateway(get_settings(), repo), repo)
     return await service.extract(
@@ -94,16 +108,36 @@ async def execute_tool(request: ToolRequest, mongo: Annotated[MongoManager, Depe
 
 
 @router.get("/proof-obligations/{item_id}")
-async def get_obligation(item_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]):
+async def get_obligation(
+    item_id: str,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
+):
+    session = await get_optional_session(mongo, settings, planproof_session)
     item = await VerificationRepository(mongo).get_obligation(item_id)
     if not item:
         raise HTTPException(404, "proof obligation not found")
+    project = await mongo.database().projects.find_one({"id": item.project_id})
+    if project:
+        verify_tenant_project_access(project, session)
     return item
 
 
 @router.get("/evidence/{item_id}")
-async def get_evidence(item_id: str, mongo: Annotated[MongoManager, Depends(get_mongo)]):
+async def get_evidence(
+    item_id: str,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
+):
+    session = await get_optional_session(mongo, settings, planproof_session)
     item = await VerificationRepository(mongo).get_evidence(item_id)
     if not item:
         raise HTTPException(404, "evidence not found")
+    snapshot = await mongo.database().repository_snapshots.find_one({"id": item.snapshot_id})
+    if snapshot:
+        project = await mongo.database().projects.find_one({"id": snapshot.get("project_id")})
+        if project:
+            verify_tenant_project_access(project, session)
     return item

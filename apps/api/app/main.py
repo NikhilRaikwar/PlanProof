@@ -34,11 +34,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await redis.close()
             await mongo.close()
 
+    docs_url = None if runtime_settings.planproof_env == "production" else "/docs"
+    redoc_url = None if runtime_settings.planproof_env == "production" else "/redoc"
+    openapi_url = None if runtime_settings.planproof_env == "production" else "/openapi.json"
+
     app = FastAPI(
         title="PlanProof API",
         version="0.1.0",
         description="Authoritative API for verification runs and evidence.",
         lifespan=lifespan,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
     )
     app.state.mongo = mongo
     app.state.redis = redis
@@ -54,6 +61,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return JSONResponse({"detail": "invalid content length"}, status_code=400)
             if oversized:
                 return JSONResponse({"detail": "request payload is too large"}, status_code=413)
+
+        # CSRF defense: Reject cross-site mutating requests with untrusted Origin
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            origin = request.headers.get("origin")
+            if origin and origin not in runtime_settings.web_origins:
+                return JSONResponse({"detail": "cross-site mutation forbidden"}, status_code=403)
+
         if request.url.path not in {"/health/live", "/health/ready"}:
             # Cloud Run receives requests through Google frontends.  Limiting by
             # ``request.client`` alone collapses every browser behind a shared
@@ -80,6 +94,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         started = time.monotonic()
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        if not request.url.path.startswith("/health/"):
+            response.headers["Cache-Control"] = "private, no-store"
         logger.info(
             "api_request method=%s path=%s status=%s duration_ms=%s request_id=%s",
             request.method,

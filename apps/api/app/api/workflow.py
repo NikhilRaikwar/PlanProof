@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -179,6 +179,7 @@ async def list_verification_runs(
     "/verification-runs", response_model=VerificationRun, status_code=status.HTTP_202_ACCEPTED
 )
 async def create_verification_run(
+    request_obj: Request,
     request: CreateRunRequest,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
@@ -190,8 +191,45 @@ async def create_verification_run(
     project = await ProjectsRepository(mongo).get(request.project_id)
     if not project:
         raise HTTPException(404, "project, snapshot, or plan version not found")
-    if session:
+
+    if not session:
+        if str(project.data_scope) == "USER" or project.github_installation_id or project.owner_id:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authentication required to verify project")
+    else:
         await _verify_tenant_project_access(project.model_dump(), session)
+
+    tenant_key = f"rate:run:{session['installation_id']}" if session else f"rate:run:{project.id}"
+    try:
+        redis = request_obj.app.state.redis
+        allowed = await redis.consume_rate_limit(tenant_key, max_requests=10, window_seconds=60)
+        if not allowed:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "verification run rate limit exceeded for this account (max 10 per minute)",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    active_query = {
+        "project_id": project.id,
+        "status": {
+            "$in": [
+                VerificationRunStatus.QUEUED.value,
+                VerificationRunStatus.EXTRACTING_OBLIGATIONS.value,
+                VerificationRunStatus.VERIFYING.value,
+                VerificationRunStatus.HUMAN_WAIT.value,
+                VerificationRunStatus.FINALIZING.value,
+            ]
+        },
+    }
+    active_count = await mongo.database().verification_runs.count_documents(active_query)
+    if active_count >= 3:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "concurrent verification run limit reached for this project (max 3 active runs)",
+        )
 
     snapshot = await runs.get_snapshot(request.snapshot_id)
     plan = await runs.get_plan_version(request.plan_version_id)

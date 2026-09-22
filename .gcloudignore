@@ -10,6 +10,10 @@ apps/api/tests/
 *.py[cod]
 .env
 .env.*
+*.pem
+*.key
+*service_account*.json
+*credentials*.json
 test-results/
 playwright-report/
 coverage/

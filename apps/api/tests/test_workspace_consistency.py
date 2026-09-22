@@ -920,4 +920,225 @@ export function ChatInterface() {
     await mongo.close()
 
 
+@pytest.mark.integration
+async def test_evidence_sufficiency_regression_suite_a_through_g() -> None:
+    """Test full regression scenarios A through G for evidence sufficiency, call-sites, and classification."""
+    settings = Settings(verification_max_iterations=20)
+    if not settings.mongo_is_configured:
+        pytest.skip("MongoDB is required")
+    mongo = MongoManager(settings)
+    await mongo.connect()
+    await ensure_indexes(mongo.database())
+    db = mongo.database()
 
+    user = f"suff-test-{new_id()[:6]}"
+    proj = Project(
+        name=f"{user}/averix-sufficiency-test",
+        owner_id=user,
+        repository_source_type=RepositorySourceType.GITHUB_APP,
+        data_scope="USER",
+    )
+    await db.projects.insert_one(proj.model_dump(mode="python"))
+
+    snap = RepositorySnapshot(
+        project_id=proj.id,
+        repository_identity=f"github:{proj.name}",
+        requested_ref="main",
+        resolved_commit_sha="cc9988771122",
+        parser_version="v1",
+        index_version="v1",
+        status=SnapshotStatus.READY,
+    )
+    await db.repository_snapshots.insert_one(snap.model_dump(mode="python"))
+
+    # ChatInterface file with import and call site
+    chat_file_with_call = """import React, { useState } from 'react';
+import { sendMessageToAgent } from '@/utils/arbitrumAgent';
+
+export function ChatInterface() {
+    const [input, setInput] = useState('');
+    const handleSubmit = async () => {
+        const res = await sendMessageToAgent(input);
+        console.log(res);
+    };
+    return <button onClick={handleSubmit}>Send</button>;
+}
+"""
+    # App.tsx with import and provider wrapping
+    app_file = """import React from 'react';
+import { PrivyProvider } from '@privy-io/react-auth';
+import Index from "./pages/Index";
+
+export default function App() {
+    return (
+        <PrivyProvider appId="test-app-id">
+            <Index />
+        </PrivyProvider>
+    );
+}
+"""
+    await db.repository_files.insert_one(
+        {
+            "snapshot_id": snap.id,
+            "path": "src/components/ChatInterface.tsx",
+            "content_hash": hashlib.sha256(chat_file_with_call.encode()).hexdigest(),
+            "text": chat_file_with_call,
+            "symbols": [],
+        }
+    )
+    await db.repository_files.insert_one(
+        {
+            "snapshot_id": snap.id,
+            "path": "src/App.tsx",
+            "content_hash": hashlib.sha256(app_file.encode()).hexdigest(),
+            "text": app_file,
+            "symbols": [],
+        }
+    )
+
+    plan = PlanVersion(
+        project_id=proj.id,
+        version=1,
+        change_request="Sufficiency regression test plan",
+        candidate_plan="Validate claims A through G",
+    )
+    await db.plan_versions.insert_one(plan.model_dump(mode="python"))
+
+    run = VerificationRun(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        status=VerificationRunStatus.QUEUED,
+    )
+    await db.verification_runs.insert_one(run.model_dump(mode="python"))
+
+    # Scenario A: Import claim with import snippet present -> VERIFIED
+    ob_a = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="ChatInterface imports sendMessageToAgent from '@/utils/arbitrumAgent'",
+        normalized_statement="chatinterface imports sendmessagetoagent from '@/utils/arbitrumagent'",
+        category=ObligationCategory.DEPENDENCY,
+        criticality="HIGH",
+    )
+
+    # Scenario B: Broader qualitative behavior with import present -> NOT VERIFIED (INCONCLUSIVE)
+    ob_b = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="sendMessageToAgent communication is correctly implemented and reliable.",
+        normalized_statement="sendmessagetoagent communication is correctly implemented and reliable.",
+        category=ObligationCategory.BEHAVIOR,
+        criticality="HIGH",
+    )
+
+    # Scenario C: Call site claim with actual invocation present -> VERIFIED
+    ob_c = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="ChatInterface invokes sendMessageToAgent",
+        normalized_statement="chatinterface invokes sendmessagetoagent",
+        category=ObligationCategory.BEHAVIOR,
+        criticality="HIGH",
+    )
+
+    # Scenario D: Privy import claim -> VERIFIED
+    ob_d = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="App imports PrivyProvider from '@privy-io/react-auth'",
+        normalized_statement="app imports privyprovider from '@privy-io/react-auth'",
+        category=ObligationCategory.DEPENDENCY,
+        criticality="HIGH",
+    )
+
+    # Scenario E: Security overclaim -> NOT VERIFIED (INCONCLUSIVE)
+    ob_e = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="PrivyProvider secures the application.",
+        normalized_statement="privyprovider secures the application.",
+        category=ObligationCategory.BEHAVIOR,
+        criticality="HIGH",
+    )
+
+    # Scenario F: Nonexistent technical identifier -> INCONCLUSIVE (not HUMAN_REQUIRED)
+    ob_f = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="Billing synchronization must be configured correctly for unsupportedNonExistentServiceIdentifierV99",
+        normalized_statement="billing synchronization must be configured correctly for unsupportednonexistentserviceidentifierv99",
+        category=ObligationCategory.DEPENDENCY,
+        criticality="MEDIUM",
+    )
+
+    # Scenario G: Genuine business rule -> HUMAN_REQUIRED / HUMAN_WAIT
+    ob_g = ProofObligation(
+        project_id=proj.id,
+        snapshot_id=snap.id,
+        plan_version_id=plan.id,
+        run_id=run.id,
+        statement="Conversation history must be retained for 30 days.",
+        normalized_statement="conversation history must be retained for 30 days.",
+        category=ObligationCategory.BUSINESS_RULE,
+        criticality="CRITICAL",
+    )
+
+    for ob in [ob_a, ob_b, ob_c, ob_d, ob_e, ob_f, ob_g]:
+        await db.proof_obligations.insert_one(ob.model_dump(mode="python"))
+
+    runs = RunRepository(mongo)
+    verification = VerificationRepository(mongo)
+    workflow = VerificationWorkflow(runs, verification, settings)
+    await workflow.run(run.id)
+
+    res_a = await verification.get_obligation(ob_a.id)
+    res_b = await verification.get_obligation(ob_b.id)
+    res_c = await verification.get_obligation(ob_c.id)
+    res_d = await verification.get_obligation(ob_d.id)
+    res_e = await verification.get_obligation(ob_e.id)
+    res_f = await verification.get_obligation(ob_f.id)
+    res_g = await verification.get_obligation(ob_g.id)
+    updated_run = await runs.get_run(run.id)
+
+    # A: Exact import claim -> VERIFIED
+    assert res_a.status == ObligationStatus.VERIFIED
+    assert len(res_a.evidence_ids) >= 1
+
+    # B: Broader qualitative claim -> INCONCLUSIVE (NOT VERIFIED)
+    assert res_b.status == ObligationStatus.INCONCLUSIVE
+
+    # C: Call site claim -> VERIFIED
+    assert res_c.status == ObligationStatus.VERIFIED
+    assert len(res_c.evidence_ids) >= 1
+
+    # D: Exact Privy import claim -> VERIFIED
+    assert res_d.status == ObligationStatus.VERIFIED
+    assert len(res_d.evidence_ids) >= 1
+
+    # E: Security overclaim -> INCONCLUSIVE (NOT VERIFIED)
+    assert res_e.status == ObligationStatus.INCONCLUSIVE
+
+    # F: Missing technical identifier -> INCONCLUSIVE (NOT HUMAN_REQUIRED)
+    assert res_f.status == ObligationStatus.INCONCLUSIVE
+
+    # G: Genuine business rule -> HUMAN_REQUIRED
+    assert res_g.status == ObligationStatus.HUMAN_REQUIRED
+
+    # Run overall gate reflects HUMAN_WAIT due to ob_g
+    assert updated_run.status == VerificationRunStatus.HUMAN_WAIT
+    assert len(updated_run.open_human_question_ids) == 1
+
+    await mongo.close()

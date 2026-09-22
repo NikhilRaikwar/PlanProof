@@ -248,10 +248,25 @@ async def github_callback(
     setup_action: str | None = None,
     planproof_github_state: Annotated[str | None, Cookie()] = None,
 ):
-    if state is not None:
-        expected = _validate_signed(planproof_github_state, settings)
-        if not expected or not hmac.compare_digest(expected, state):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid GitHub connection state")
+    if not state or not planproof_github_state:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "GitHub connection state is required")
+    expected = _validate_signed(planproof_github_state, settings)
+    if not expected or not hmac.compare_digest(expected, state):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid GitHub connection state")
+
+    used = await mongo.database().used_auth_nonces.find_one({"nonce": state})
+    if used:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "GitHub connection state has already been consumed"
+        )
+    await mongo.database().used_auth_nonces.insert_one(
+        {
+            "nonce": state,
+            "created_at": datetime.now(UTC),
+            "expires_at": datetime.now(UTC) + timedelta(minutes=15),
+        }
+    )
+
     try:
         installation = await _client(settings).verify_installation(installation_id)
     except RuntimeError as exc:
@@ -262,6 +277,16 @@ async def github_callback(
     login = account.get("login")
     if not isinstance(login, str):
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "GitHub installation account is invalid")
+
+    existing_inst = await mongo.database().github_installations.find_one(
+        {"installation_id": installation_id}
+    )
+    if existing_inst:
+        existing_login = existing_inst.get("account_login")
+        if existing_login and existing_login != login:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "installation is bound to another GitHub account"
+            )
     now = datetime.now(UTC)
     await mongo.database().github_installations.update_one(
         {"installation_id": installation_id},

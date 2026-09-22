@@ -304,6 +304,7 @@ async def test_queued_seeded_run_reaches_durable_human_wait(monkeypatch) -> None
             question.id,
             HumanAnswerRequest(answer="Confirmed by product owner", actor_id="product-owner"),
             mongo,
+            settings,
         )
         await _execute(run.id)
         current = await runs.get_run(run.id)
