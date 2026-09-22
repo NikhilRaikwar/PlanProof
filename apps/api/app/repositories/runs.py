@@ -44,6 +44,7 @@ class RunRepository:
                 "parser_version": parser,
                 "index_version": index,
                 "status": "READY",
+                "manifest_complete": True,
             }
         )
         return RepositorySnapshot.model_validate(document) if document else None

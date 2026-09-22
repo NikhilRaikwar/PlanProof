@@ -74,27 +74,36 @@ class SnapshotIngestionService:
             try:
                 await self.records.update_snapshot(snapshot)
             except DuplicateKeyError as error:
-                # A concurrent ingest may have resolved the same immutable source
-                # between our preflight lookup and this unique-indexed transition.
-                # Reuse only its completed immutable snapshot; never continue with
-                # two competing index writers for the same identity.
-                for _ in range(20):
-                    existing = await self.records.get_ready_snapshot(
-                        snapshot.project_id,
-                        source.identity,
-                        sha,
-                        snapshot.parser_version,
-                        snapshot.index_version,
-                    )
-                    if existing is not None:
-                        await self.records.delete_snapshot(snapshot.id)
-                        return existing
-                    await asyncio.sleep(0.05)
-                snapshot.resolved_commit_sha = None
-                snapshot.status = SnapshotStatus.FAILED
-                snapshot.failure_category = "INGESTION_CONFLICT"
-                await self.records.update_snapshot(snapshot)
-                raise RuntimeError("immutable snapshot conflict") from error
+                legacy_doc = await self.records._database.repository_snapshots.find_one(
+                    {
+                        "project_id": snapshot.project_id,
+                        "repository_identity": source.identity,
+                        "resolved_commit_sha": sha,
+                        "parser_version": snapshot.parser_version,
+                        "index_version": snapshot.index_version,
+                    }
+                )
+                if legacy_doc and not legacy_doc.get("manifest_complete"):
+                    await self.records.delete_snapshot(legacy_doc["id"])
+                    await self.records.update_snapshot(snapshot)
+                else:
+                    for _ in range(20):
+                        existing = await self.records.get_ready_snapshot(
+                            snapshot.project_id,
+                            source.identity,
+                            sha,
+                            snapshot.parser_version,
+                            snapshot.index_version,
+                        )
+                        if existing is not None:
+                            await self.records.delete_snapshot(snapshot.id)
+                            return existing
+                        await asyncio.sleep(0.05)
+                    snapshot.resolved_commit_sha = None
+                    snapshot.status = SnapshotStatus.FAILED
+                    snapshot.failure_category = "INGESTION_CONFLICT"
+                    await self.records.update_snapshot(snapshot)
+                    raise RuntimeError("immutable snapshot conflict") from error
             files, root_hash, ignored_files = self._inventory(repository_root)
             manifest_entries, manifest_hash = self._inventory_manifest(
                 repository_root, snapshot.id, is_git=not isinstance(source, SeededFixtureSource)
