@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     session_secret: SecretStr | None = None
     session_cookie_secure: bool = False
 
-    verification_max_iterations: int = Field(default=4, ge=1, le=20)
-    verification_max_tool_calls: int = Field(default=6, ge=1, le=30)
+    verification_max_iterations: int = Field(default=20, ge=1, le=20)
+    verification_max_tool_calls: int = Field(default=20, ge=1, le=30)
     verification_max_model_calls: int = Field(default=3, ge=0, le=20)
     verification_max_context_bytes: int = Field(default=64_000, ge=1_000, le=1_000_000)
     max_request_bytes: int = Field(default=1_000_000, ge=1_024, le=10_000_000)
