@@ -563,3 +563,285 @@ def test_classify_obligation_routing() -> None:
     ob_biz_c = _make_obligation("ob-bc", "Data retention policy requires user approval before deletion")
     ob_biz_c.semantic_role = SemanticRole.CONSTRAINT
     assert classify_obligation_routing(ob_biz_c) == "HUMAN_AUTHORITY"
+
+
+@pytest.mark.asyncio
+async def test_revision_fake_human_decision_id_cannot_ground_change_or_step() -> None:
+    mock_repo = MockVerificationRepo()
+    # Model proposes changes citing a fabricated human_decision_id
+    model_response = ModelRevisedPlanResponse(
+        executive_summary="Plan based on fabricated authority.",
+        plan_changes=[
+            ModelPlanChange(
+                change_type="MODIFY",
+                source_plan_step_ids=["step-1"],
+                original_text="Configure retention",
+                updated_text="Configure 30-day retention",
+                rationale="User approved 30 days.",
+                basis_fact_ids=[],
+                human_decision_ids=["fake-human-id-999"],
+            )
+        ],
+        implementation_plan=[
+            ModelRevisedPlanStep(
+                order=1,
+                action="Configure 30-day retention",
+                rationale="User decision",
+                status="MODIFY",
+                source_plan_step_ids=["step-1"],
+                basis_fact_ids=[],
+                supporting_human_decision_ids=["fake-human-id-999"],
+            )
+        ],
+    )
+
+    gateway = MockGateway(model_response)
+    service = PlanRevisionService(gateway=gateway, verification=mock_repo)  # type: ignore[arg-type]
+
+    ob = _make_obligation(
+        "ob-h",
+        "Configure data retention",
+        status=ObligationStatus.HUMAN_REQUIRED,
+    )
+
+    plan_ver = PlanVersion(
+        id="pv-1",
+        project_id="proj-1",
+        version=1,
+        change_request="Configure retention",
+        candidate_plan="1. Configure retention",
+    )
+
+    revised_plan = await service.synthesize(
+        run_id="run-1",
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version=plan_ver,
+        obligations=[ob],
+    )
+
+    # 1. Fake human decision ID must NOT be persisted in PlanChange or step
+    change = revised_plan.plan_changes[0]
+    assert change.human_decision_ids == []
+    # 2. Without valid facts or valid human decisions, change must become UNRESOLVED
+    assert change.change_type == PlanChangeType.UNRESOLVED
+
+    # 3. Step must not have fake ID and cannot produce HUMAN_CONFIRMED confidence
+    step = revised_plan.implementation_plan[0]
+    assert step.supporting_human_decision_ids == []
+    assert step.status == PlanChangeType.UNRESOLVED
+    assert step.confidence_basis == ConfidenceBasis.UNRESOLVED
+
+
+@pytest.mark.asyncio
+async def test_revision_valid_human_decision_id_grounds_change_and_step() -> None:
+    mock_repo = MockVerificationRepo()
+    # Insert an answered human question
+    await mock_repo.database.human_questions.insert_one({
+        "id": "hq-actual-1",
+        "run_id": "run-1",
+        "obligation_id": "ob-h",
+        "answer": "Approved 30-day retention",
+    })
+
+    model_response = ModelRevisedPlanResponse(
+        executive_summary="Plan based on authorized human decision.",
+        plan_changes=[
+            ModelPlanChange(
+                change_type="MODIFY",
+                source_plan_step_ids=["step-1"],
+                original_text="Configure retention",
+                updated_text="Configure 30-day retention",
+                rationale="User approved 30 days.",
+                basis_fact_ids=[],
+                human_decision_ids=["hq-actual-1"],
+            )
+        ],
+        implementation_plan=[
+            ModelRevisedPlanStep(
+                order=1,
+                action="Configure 30-day retention",
+                rationale="User decision",
+                status="MODIFY",
+                source_plan_step_ids=["step-1"],
+                basis_fact_ids=[],
+                supporting_human_decision_ids=["hq-actual-1"],
+            )
+        ],
+    )
+
+    gateway = MockGateway(model_response)
+    service = PlanRevisionService(gateway=gateway, verification=mock_repo)  # type: ignore[arg-type]
+
+    ob = _make_obligation(
+        "ob-h",
+        "Configure data retention",
+        status=ObligationStatus.HUMAN_REQUIRED,
+    )
+
+    plan_ver = PlanVersion(
+        id="pv-1",
+        project_id="proj-1",
+        version=1,
+        change_request="Configure retention",
+        candidate_plan="1. Configure retention",
+    )
+
+    revised_plan = await service.synthesize(
+        run_id="run-1",
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version=plan_ver,
+        obligations=[ob],
+    )
+
+    change = revised_plan.plan_changes[0]
+    assert change.human_decision_ids == ["hq-actual-1"]
+    assert change.change_type == PlanChangeType.MODIFY
+
+    step = revised_plan.implementation_plan[0]
+    assert step.supporting_human_decision_ids == ["hq-actual-1"]
+    assert step.confidence_basis == ConfidenceBasis.HUMAN_CONFIRMED
+
+
+@pytest.mark.asyncio
+async def test_revision_empty_symbol_index_fails_closed() -> None:
+    mock_repo = MockVerificationRepo()
+    # Clear all snapshot symbols
+    mock_repo.database.code_symbols = MockCollection([])
+
+    model_response = ModelRevisedPlanResponse(
+        executive_summary="Empty symbols test.",
+        plan_changes=[
+            ModelPlanChange(
+                change_type="MODIFY",
+                source_plan_step_ids=["step-1"],
+                original_text="Update providers",
+                updated_text="Update app/providers.tsx",
+                rationale="Fact backed",
+                basis_fact_ids=[],
+            )
+        ],
+        implementation_plan=[
+            ModelRevisedPlanStep(
+                order=1,
+                action="Update providers",
+                rationale="Fact backed",
+                status="MODIFY",
+                source_plan_step_ids=["step-1"],
+                existing_target_files=["app/providers.tsx"],
+                existing_target_symbols=["InventedSymbol123"],
+                proposed_new_symbols=[],
+            )
+        ],
+    )
+
+    gateway = MockGateway(model_response)
+    service = PlanRevisionService(gateway=gateway, verification=mock_repo)  # type: ignore[arg-type]
+
+    ob = _make_obligation(
+        "ob-1",
+        "app/providers.tsx exists",
+        status=ObligationStatus.VERIFIED,
+        evidence_ids=["ev-1"],
+    )
+
+    facts = await service.derive_authorized_facts("run-1", "snap-1", [ob])
+    model_response.plan_changes[0].basis_fact_ids = [facts[0].id]
+    model_response.implementation_plan[0].basis_fact_ids = [facts[0].id]
+
+    plan_ver = PlanVersion(
+        id="pv-1",
+        project_id="proj-1",
+        version=1,
+        change_request="Migrate auth",
+        candidate_plan="1. Update providers",
+    )
+
+    revised_plan = await service.synthesize(
+        run_id="run-1",
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version=plan_ver,
+        obligations=[ob],
+    )
+
+    step = revised_plan.implementation_plan[0]
+    # Empty symbol index must NOT authorize InventedSymbol123
+    assert "InventedSymbol123" not in step.existing_target_symbols
+    assert "InventedSymbol123" in step.proposed_new_symbols
+
+
+@pytest.mark.asyncio
+async def test_revision_symbol_lookup_failure_fails_closed_and_preserves_fact_symbols() -> None:
+    mock_repo = MockVerificationRepo()
+
+    class FailingSymbolCollection(MockCollection):
+        def find(self, *args, **kwargs):
+            raise RuntimeError("Database connection timeout during symbol index query")
+
+    mock_repo.database.code_symbols = FailingSymbolCollection()
+
+    model_response = ModelRevisedPlanResponse(
+        executive_summary="Failing symbol query test.",
+        plan_changes=[
+            ModelPlanChange(
+                change_type="MODIFY",
+                source_plan_step_ids=["step-1"],
+                original_text="Update providers",
+                updated_text="Update app/providers.tsx",
+                rationale="Fact backed",
+                basis_fact_ids=[],
+            )
+        ],
+        implementation_plan=[
+            ModelRevisedPlanStep(
+                order=1,
+                action="Update providers",
+                rationale="Fact backed",
+                status="MODIFY",
+                source_plan_step_ids=["step-1"],
+                existing_target_files=["app/providers.tsx"],
+                existing_target_symbols=["PrivyProvider", "UnverifiedSymbol"],
+                proposed_new_symbols=[],
+            )
+        ],
+    )
+
+    gateway = MockGateway(model_response)
+    service = PlanRevisionService(gateway=gateway, verification=mock_repo)  # type: ignore[arg-type]
+
+    ob = _make_obligation(
+        "ob-1",
+        "app/providers.tsx imports PrivyProvider",
+        status=ObligationStatus.VERIFIED,
+        evidence_ids=["ev-1"],  # ev-1 matched_query is PrivyProvider
+    )
+
+    facts = await service.derive_authorized_facts("run-1", "snap-1", [ob])
+    model_response.plan_changes[0].basis_fact_ids = [facts[0].id]
+    model_response.implementation_plan[0].basis_fact_ids = [facts[0].id]
+
+    plan_ver = PlanVersion(
+        id="pv-1",
+        project_id="proj-1",
+        version=1,
+        change_request="Migrate auth",
+        candidate_plan="1. Update providers",
+    )
+
+    revised_plan = await service.synthesize(
+        run_id="run-1",
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version=plan_ver,
+        obligations=[ob],
+    )
+
+    step = revised_plan.implementation_plan[0]
+    # PrivyProvider is in facts, so it is accepted
+    assert "PrivyProvider" in step.existing_target_symbols
+    # UnverifiedSymbol fails closed
+    assert "UnverifiedSymbol" not in step.existing_target_symbols
+    assert "UnverifiedSymbol" in step.proposed_new_symbols
+

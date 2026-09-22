@@ -228,8 +228,10 @@ class PlanRevisionService:
                         snapshot_symbols.add(val)
                         for token in re.findall(r"[A-Za-z_$][\w$]*", val):
                             snapshot_symbols.add(token)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                f"Failed to fetch snapshot code symbols for snapshot_id={snapshot_id}: {exc}. Failing closed to authorized facts."
+            )
 
         for f in facts:
             for sym in f.symbols:
@@ -349,7 +351,7 @@ class PlanRevisionService:
                                 validation_issues.append(
                                     f"Path '{clean_sym}' in step {step.order} was listed in existing_target_symbols. Paths belong in existing_target_files, not symbols."
                                 )
-                            elif snapshot_symbols and clean_sym not in snapshot_symbols:
+                            elif clean_sym not in snapshot_symbols:
                                 validation_issues.append(
                                     f"Symbol '{clean_sym}' in step {step.order} was listed in existing_target_symbols, but is not verified in the snapshot. Move new/unverified symbols to proposed_new_symbols."
                                 )
@@ -403,7 +405,7 @@ class PlanRevisionService:
                         valid_h_ids = [
                             hid
                             for hid in raw_change.human_decision_ids
-                            if hid in valid_human_ids or hid
+                            if hid in valid_human_ids
                         ]
 
                         rationale = raw_change.rationale
@@ -466,6 +468,11 @@ class PlanRevisionService:
                             for eid in raw_step.supporting_evidence_ids
                             if eid in valid_fact_evidence_ids
                         ]
+                        valid_step_human_ids = [
+                            hid
+                            for hid in raw_step.supporting_human_decision_ids
+                            if hid in valid_human_ids
+                        ]
 
                         # Verify existing target files strictly exist in snapshot
                         existing_files: list[str] = []
@@ -485,7 +492,7 @@ class PlanRevisionService:
                             if clean_fpath and clean_fpath not in suggested_files:
                                 suggested_files.append(clean_fpath)
 
-                        # Verify existing target symbols (reject paths and unverified symbols)
+                        # Verify existing target symbols (reject paths and unverified symbols fail-closed)
                         existing_symbols: list[str] = []
                         proposed_symbols: list[str] = []
 
@@ -493,7 +500,7 @@ class PlanRevisionService:
                             clean_sym = sym.strip()
                             if not clean_sym or _is_path_like(clean_sym):
                                 continue
-                            if not snapshot_symbols or clean_sym in snapshot_symbols:
+                            if clean_sym in snapshot_symbols:
                                 existing_symbols.append(clean_sym)
                             else:
                                 proposed_symbols.append(clean_sym)
@@ -507,11 +514,11 @@ class PlanRevisionService:
                             ):
                                 proposed_symbols.append(clean_sym)
 
-                        # Handle ungrounded/invalid steps
+                        # Handle ungrounded/invalid steps (strictly using valid_step_human_ids)
                         unresolved_deps = list(raw_step.unresolved_dependency_ids)
                         if step_has_invalid_existing_file or (
                             not valid_fact_ids
-                            and not raw_step.supporting_human_decision_ids
+                            and not valid_step_human_ids
                             and stype not in {PlanChangeType.ADD, PlanChangeType.UNRESOLVED}
                         ):
                             stype = PlanChangeType.UNRESOLVED
@@ -550,7 +557,7 @@ class PlanRevisionService:
                             for fid in valid_fact_ids
                         ):
                             confidence = ConfidenceBasis.EVIDENCE_BACKED
-                        elif raw_step.supporting_human_decision_ids:
+                        elif valid_step_human_ids:
                             confidence = ConfidenceBasis.HUMAN_CONFIRMED
                         elif valid_fact_ids:
                             confidence = ConfidenceBasis.PARTIALLY_EVIDENCED
@@ -569,7 +576,7 @@ class PlanRevisionService:
                                 basis_fact_ids=valid_fact_ids,
                                 supporting_obligation_ids=raw_step.supporting_obligation_ids,
                                 supporting_evidence_ids=valid_ev_ids,
-                                supporting_human_decision_ids=raw_step.supporting_human_decision_ids,
+                                supporting_human_decision_ids=valid_step_human_ids,
                                 unresolved_dependency_ids=unresolved_deps,
                                 existing_target_files=existing_files,
                                 proposed_new_files=suggested_files,
