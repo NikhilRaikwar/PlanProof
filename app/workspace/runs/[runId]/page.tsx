@@ -229,13 +229,13 @@ export default function RunReportPage() {
               </span>
             )}
             {isHumanWait && (
-              <span className="badge-pill-base" style={{ fontSize: 13, padding: '6px 14px', background: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' }}>
+              <span className="badge-pill-base badge-human" style={{ fontSize: 13, padding: '6px 14px' }}>
                 <Clock size={16} /> HUMAN DECISION REQUIRED
               </span>
             )}
             {!isBlocked && !isComplete && !isHumanWait && (
-              <span className="badge-pill-base badge-queued" style={{ fontSize: 13, padding: '6px 14px' }}>
-                {run.status}
+              <span className="badge-pill-base badge-inconclusive" style={{ fontSize: 13, padding: '6px 14px' }}>
+                {run.status === 'INCONCLUSIVE' ? 'INCONCLUSIVE' : run.status}
               </span>
             )}
           </div>
@@ -253,7 +253,7 @@ export default function RunReportPage() {
       </div>
 
       {/* Summary Metrics Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
+      <div className="run-metrics-grid">
         <div className="card-panel-white" style={{ padding: 14, textAlign: 'center' }}>
           <span style={{ fontSize: 11, color: '#64748B', fontWeight: 650 }}>Proof Obligations</span>
           <strong style={{ fontSize: 20, color: '#0F172A', display: 'block', marginTop: 4 }}>{totalObligations}</strong>
@@ -408,6 +408,7 @@ export default function RunReportPage() {
               const isObVerified = obligation.status === 'VERIFIED'
               const isObDisproved = obligation.status === 'DISPROVED'
               const isObInconclusive = obligation.status === 'INCONCLUSIVE'
+              const isObHumanRequired = obligation.status === 'HUMAN_REQUIRED' || obOpen.length > 0
               const inconclusiveReason = obligation.proposal_metadata?.inconclusive_reason || 'No supporting repository evidence found within investigation budget'
 
               return (
@@ -447,6 +448,14 @@ export default function RunReportPage() {
                       ) : isObDisproved ? (
                         <span className="badge-pill-base badge-blocked">
                           <XCircle size={12} /> DISPROVED
+                        </span>
+                      ) : isObHumanRequired ? (
+                        <span className="badge-pill-base badge-human">
+                          <Clock size={12} /> HUMAN DECISION REQUIRED
+                        </span>
+                      ) : isObInconclusive ? (
+                        <span className="badge-pill-base badge-inconclusive">
+                          INCONCLUSIVE
                         </span>
                       ) : (
                         <span className="badge-pill-base badge-queued">

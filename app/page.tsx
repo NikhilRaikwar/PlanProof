@@ -163,8 +163,8 @@ const confidenceSteps = [
     stepTag: 'CODE GROUNDING',
     icon: Search,
     title: 'Gather code-backed evidence',
-    text: 'Inspect codebase facts using bounded AST parsing, lexical search, and cryptographic file line hashes.',
-    chips: ['AST Parsing', 'Lexical Search', 'SHA-256 Provenance'],
+    text: 'Inspect repository facts using Python AST symbol extraction, lightweight TS/JS symbol indexing, bounded lexical search, and SHA-256 source provenance.',
+    chips: ['Python AST', 'TS/JS Symbols', 'Lexical Search', 'SHA-256 Provenance'],
     footer: 'Step 2 • Code Grounding'
   },
   {
@@ -172,8 +172,8 @@ const confidenceSteps = [
     stepTag: 'AUTOMATED GATE',
     icon: ShieldCheck,
     title: 'Compute the Plan Gate',
-    text: 'Authoritatively verify, disprove, or escalate authority gaps to human stakeholders before code generation starts.',
-    chips: ['VERIFIED', 'BLOCKED', 'HUMAN_REQUIRED'],
+    text: 'Combine evidence-backed obligation outcomes into a passed, blocked, inconclusive, or human-decision state before code generation starts.',
+    chips: ['COMPLETE', 'BLOCKED', 'INCONCLUSIVE', 'HUMAN_REQUIRED'],
     footer: 'Step 3 • Plan Gate Policy'
   }
 ]
@@ -283,7 +283,7 @@ const workflowSteps = [
     label: 'Investigate',
     sub: 'BOUNDED EVIDENCE',
     icon: Search,
-    desc: 'Gather code facts via deterministic AST and lexical tools.'
+    desc: 'Gather snapshot-scoped facts through deterministic symbol and lexical inspection tools.'
   },
   {
     id: 'decide',
@@ -291,7 +291,7 @@ const workflowSteps = [
     label: 'Gate',
     sub: 'PLAN GATE VERDICT',
     icon: ShieldCheck,
-    desc: 'Compute VERIFIED, BLOCKED, or HUMAN_REQUIRED verdict.'
+    desc: 'Combine evidence-backed obligation outcomes into a passed, blocked, inconclusive, or human-decision state.'
   }
 ]
 
@@ -317,7 +317,7 @@ function WorkflowSection() {
             A simple <span className="text-gradient-orange">verification</span> flow.
           </h2>
           <p className="scene-subtitle">
-            From raw engineering intent to an authoritative Plan Gate in five deterministic steps.
+            From raw engineering intent to an authoritative Plan Gate in five bounded, auditable steps.
           </p>
         </motion.div>
 
@@ -719,7 +719,7 @@ function BuiltForAgentsSection() {
 const faqs = [
   {
     q: 'What does PlanProof verify?',
-    a: 'PlanProof tests assumptions in AI-generated software engineering plans against real repository code. It validates whether symbols exist, schemas support proposed operations, API contracts match, and whether changes introduce cross-module side effects before coding agents begin execution.',
+    a: 'PlanProof decomposes plans into proof obligations and checks code-resolvable claims against immutable snapshot evidence, safely abstaining or escalating when evidence is insufficient.',
   },
   {
     q: 'How is PlanProof different from an AI coding agent?',
@@ -727,11 +727,11 @@ const faqs = [
   },
   {
     q: 'Does PlanProof execute arbitrary repository code?',
-    a: 'No. PlanProof uses static AST parsers and bounded lexical search tools against immutable repository snapshots. It does not run arbitrary build scripts, test suites, or shell commands in P0.',
+    a: 'No. PlanProof uses Python AST parsing (stdlib ast.parse), lightweight TS/JS symbol extraction, and bounded lexical/static inspection against immutable snapshots. It does not run arbitrary build scripts, test suites, or shell commands.',
   },
   {
     q: 'How does PlanProof prevent an LLM from inventing evidence?',
-    a: 'Evidence authority is owned entirely by the server. Evidence records and cryptographic SHA-256 hashes are minted only after audited tool runs succeed. The orchestrator rejects any model-quoted evidence that lacks server provenance.',
+    a: 'Only server-issued evidence records backed by successful deterministic tool runs can affect verification status. Model text cannot mint or authorize evidence.',
   },
   {
     q: 'Why does PlanProof use human-in-the-loop (HITL) decisions?',
@@ -739,11 +739,11 @@ const faqs = [
   },
   {
     q: 'Why does PlanProof use one orchestrator instead of a multi-agent swarm?',
-    a: 'A single bounded LangGraph state machine ensures complete causal traceability, predictable latency, lower token costs, and robust checkpoint resumption without non-deterministic multi-agent consensus loops.',
+    a: 'One bounded orchestrator keeps causal traceability simple; durable state is persisted in MongoDB and work is resumed through Redis/Dramatiq.',
   },
   {
     q: 'Does PlanProof use vector RAG?',
-    a: 'No. Code verification requires exact syntactic symbol definitions, type signatures, and cryptographic line provenance. Exact lexical and AST indexing provides deterministic truth without fuzzy semantic retrieval false positives.',
+    a: 'No. The current verifier prioritizes exact symbols, paths, source ranges, and content-hash provenance. Semantic retrieval could later be added as candidate generation if evals show value, but it would not become truth authority.',
   },
   {
     q: 'What repositories can PlanProof connect to?',
@@ -926,12 +926,12 @@ function CtaSection({ connected }: { connected: boolean }) {
 
           <div className="footer-bottom-bar">
             <div className="footer-copyright">
-              © 2026 PlanProof Inc. All rights reserved.
+              © 2026 Nikhil Raikwar · PlanProof is open source under the MIT License.
             </div>
 
             <div className="footer-status-pill">
               <span className="footer-status-dot" />
-              <span>Verification Engine Operational</span>
+              <span>Live production deployment</span>
             </div>
           </div>
         </div>

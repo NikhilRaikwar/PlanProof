@@ -13,7 +13,7 @@ Evidence is issued only by server code after a successful tool run. It must bind
 ## Operational controls
 
 - Request payload size and Redis-backed rate-limit boundaries are configurable.
-- CORS uses an explicit `PLANPROOF_WEB_ORIGINS` allowlist; credentials are not enabled.
+- CORS uses an explicit `PLANPROOF_WEB_ORIGINS` allowlist with `allow_credentials=True` for authenticated session cookies; cross-site mutations without trusted Origin are rejected.
 - API/model/Mongo/Redis credentials remain server-side Secret Manager values in production. `NEXT_PUBLIC_*` may contain only the public API URL.
 - Readiness checks MongoDB indexes and Redis; liveness never depends on external services.
 - Logs and events contain safe summaries and correlation IDs, never full prompts, repository files, or secrets.

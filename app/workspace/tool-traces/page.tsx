@@ -173,7 +173,7 @@ export default function ToolTracesPage() {
           </div>
 
           {/* Attribution Notice */}
-          {projection?.trace_attribution_status === 'LEGACY_ATTRIBUTED' && (
+          {projection?.trace_attribution_status === 'LEGACY_EVIDENCE_RECONSTRUCTED' && (
             <div className="card-panel-subtle" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', fontSize: 12, color: '#475569' }}>
               <Info size={14} color="#0284C7" />
               <span>
@@ -182,7 +182,7 @@ export default function ToolTracesPage() {
             </div>
           )}
 
-          {projection?.trace_attribution_status === 'LEGACY_UNAVAILABLE' && (
+          {projection?.trace_attribution_status === 'LEGACY_TRACE_UNAVAILABLE' && (
             <div className="card-panel-subtle" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', fontSize: 12, color: '#D97706', background: '#FFFBEB', borderColor: '#FDE68A' }}>
               <Info size={14} color="#D97706" />
               <span>

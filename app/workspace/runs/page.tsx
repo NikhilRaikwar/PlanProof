@@ -67,13 +67,13 @@ export default function RunsPage() {
       return <span className="badge-pill-base badge-verified"><ShieldCheck size={12} /> COMPLETE</span>
     }
     if (status === 'HUMAN_WAIT' || status === 'HUMAN_DECISION_REQUIRED' || hasHumanWait) {
-      return <span className="badge-pill-base" style={{ background: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' }}><Clock size={12} /> HUMAN WAIT</span>
+      return <span className="badge-pill-base badge-human"><Clock size={12} /> HUMAN DECISION REQUIRED</span>
     }
     if (status === 'INCONCLUSIVE') {
-      return <span className="badge-pill-base badge-queued">INCONCLUSIVE</span>
+      return <span className="badge-pill-base badge-inconclusive">INCONCLUSIVE</span>
     }
     if (status === 'FAILED') {
-      return <span className="badge-pill-base badge-blocked">FAILED</span>
+      return <span className="badge-pill-base badge-blocked"><ShieldAlert size={12} /> FAILED</span>
     }
     return <span className="badge-pill-base badge-queued">{status}</span>
   }
@@ -96,7 +96,7 @@ export default function RunsPage() {
         </div>
 
         {selectedRepo && (
-          <Link href={`/workspace/new-verification${selectedRepo.snapshotId ? `?snapshot_id=${selectedRepo.snapshotId}` : ''}`} className="btn-verify-plan-cta">
+          <Link href={`/workspace/new-verification${selectedRepo.snapshotId ? `?snapshot_id=${selectedRepo.snapshotId}` : ''}`} className="btn-header-cta">
             <Plus size={14} />
             New verification
           </Link>

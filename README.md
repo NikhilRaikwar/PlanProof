@@ -107,11 +107,10 @@ GitHub Repository / Demo Fixture
                           ├──> Deterministic AST Validators
                           ├──> Bounded Repository Investigation Tools
                           └──> Server-Issued Evidence (Cryptographically bound)
-                                └──> Deterministic Gate Policy
-                                      ├──> VERIFIED_FOR_EXECUTION
-                                      ├──> BLOCKED (Counter-evidence discovered)
-                                      ├──> HUMAN_DECISION_REQUIRED (Authority gap)
-                                      └──> INCONCLUSIVE (Budget exhausted / safe abstention)
+                                       ├──> COMPLETE (All obligations verified)
+                                       ├──> BLOCKED (Counter-evidence discovered)
+                                       ├──> HUMAN_DECISION_REQUIRED (Authority gap)
+                                       └──> INCONCLUSIVE (Budget exhausted / safe abstention)
 ```
 
 ---
@@ -137,48 +136,50 @@ flowchart TD
 
   subgraph Investigation["3. Bounded Investigation"]
     Snapshot --> RepTools[Snapshot-Scoped Tools: AST & Search]
-    Obligations --> ObligationLoop[Single Obligation Focus]
-    ObligationLoop --> FastValidators{Deterministic AST Validator?}
-    FastValidators -->|No| LLMToolSelect[LLM Proposes Tool Action]
-    LLMToolSelect --> ToolAllowlist[Allowlist & Schema Authorization]
-    ToolAllowlist --> RepTools
+    Obligations --> QueryPlanner[Deterministic Focused Query Planning]
+    QueryPlanner --> RepTools
     RepTools --> ToolRun[(Audited Tool Run)]
-    ToolRun --> EvidenceIssuer[Server Evidence Authority: Content Hash Verification]
+    ToolRun --> SufficiencyCheck{Deterministic Evidence Sufficiency}
+    SufficiencyCheck -->|Sufficient| EvidenceIssuer[Server Evidence Authority: Content Hash Verification]
+    SufficiencyCheck -->|Insufficient / Unrelated| InconclusiveCheck[Budget / Safe Abstention]
     EvidenceIssuer --> Evidence[(Server-Issued Evidence)]
   end
 
   subgraph AuthorityGate["4. Authority & Final Plan Gate"]
-    FastValidators -->|Yes| PolicyCheck[Deterministic Status Policy]
-    Evidence --> PolicyCheck
-    PolicyCheck -->|Authority Gap| HumanWait[HUMAN_REQUIRED: Workflow Pauses]
+    Evidence --> PolicyCheck[Deterministic Status Policy]
+    InconclusiveCheck --> PolicyCheck
+    PolicyCheck -->|External Authority Gap| HumanWait[HUMAN_REQUIRED: Workflow Pauses]
     HumanWait --> HumanInput[Human Submits Decision]
     HumanInput --> PolicyCheck
     PolicyCheck --> FinalGate{Deterministic Gate Evaluator}
-    FinalGate -->|Direct Contradiction| Blocked[BLOCKED]
-    FinalGate -->|All Satisfied| Verified[VERIFIED_FOR_EXECUTION]
-    FinalGate -->|Ambiguous / Exhausted| Inconclusive[INCONCLUSIVE]
+    FinalGate -->|Counter-Evidence| Blocked[BLOCKED]
+    FinalGate -->|Evidence Satisfied| Complete[COMPLETE]
+    FinalGate -->|Ambiguous / Budget Limit| Inconclusive[INCONCLUSIVE]
+    FinalGate -->|Awaiting Decision| HumanGate[HUMAN_DECISION_REQUIRED]
   end
 
   style Repo fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style SHA fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#14532d
   style Snapshot fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
   style Plan fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
   style LLMExtract fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
-  style LLMToolSelect fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
   style ValidateObligations fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
-  style FastValidators fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
-  style PolicyCheck fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
-  style FinalGate fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafe
+  style Obligations fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style QueryPlanner fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
   style RepTools fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
-  style ToolAllowlist fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
   style ToolRun fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style SufficiencyCheck fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
   style EvidenceIssuer fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
   style Evidence fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
-  style Obligations fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style InconclusiveCheck fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#475569
+  style PolicyCheck fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style FinalGate fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafe
   style HumanWait fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f
   style HumanInput fill:#fffbeb,stroke:#d97706,stroke-width:1.5px,color:#78350f
   style Blocked fill:#fef2f2,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
-  style Verified fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
+  style Complete fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
   style Inconclusive fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#475569
+  style HumanGate fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f
 ```
 
 ---
@@ -189,42 +190,44 @@ PlanProof runs a bounded state loop. The model never loops indefinitely, cannot 
 
 ```mermaid
 flowchart TD
-  Start([Next Pending Obligation]) --> CheckCat{Category: Business or Cross-Service?}
+  Start([Next Pending Obligation]) --> CheckCat{Category: Genuine Business or Cross-Service Intent?}
   CheckCat -->|Yes| HumanState[Emit HUMAN_REQUIRED / Persist Question]
-  CheckCat -->|No| CheckBudget{Within Budget?}
+  CheckCat -->|No| CheckBudget{Within Investigation Budget?}
 
   CheckBudget -->|Budget Exhausted| InconclusiveState[Mark INCONCLUSIVE: Safe Abstention]
-  CheckBudget -->|Within Budget| LLMAction[Model Proposes Next Tool Action]
+  CheckBudget -->|Within Budget| QueryPlan[Deterministic Query Planning: Identifiers & Hints]
 
-  LLMAction --> SchemaValidate{Allowlist & Schema Check}
-  SchemaValidate -->|Invalid / Disallowed| Replan[Reject Action & Decrement Budget]
-  Replan --> BoundedLoop[Next Loop Iteration]
-  BoundedLoop --> CheckBudget
-
-  SchemaValidate -->|Authorized| ExecuteTool[Execute Repository Tool: Sandboxed]
-  ExecuteTool --> RecordToolRun[(Persist Tool Run + Input Hash)]
+  QueryPlan --> ExecuteTool[Execute Snapshot-Scoped Tools: AST & Lexical]
+  ExecuteTool --> RecordToolRun[(Persist Tool Run + Latency + Input Hash)]
 
   RecordToolRun --> CheckToolStatus{Tool Succeeded?}
-  CheckToolStatus -->|Failed| ToolFailEvent[Record Error Class / No Evidence]
-  ToolFailEvent --> BoundedLoop
+  CheckToolStatus -->|Failed| ToolFailEvent[Record Tool Run Status / No Evidence]
+  ToolFailEvent --> BoundedLoop[Next Obligation / Query]
 
-  CheckToolStatus -->|Succeeded| IssueEvidence[Server Issues Cryptographic Evidence]
-  IssueEvidence --> ValidateProvenance{Provenance & Hash Match?}
+  CheckToolStatus -->|Succeeded| FetchSnippet[Fetch Real Source Snippet from Immutable Snapshot]
+  FetchSnippet --> CheckSufficiency{Evidence Relevance & Sufficiency Check}
 
-  ValidateProvenance -->|Invalid Hash| DropEvidence[Reject Evidence]
+  CheckSufficiency -->|Insufficient| BoundedLoop
+  CheckSufficiency -->|Sufficient| IssueEvidence[Server EvidenceAuthority: Issue Source Range]
+
+  IssueEvidence --> ValidateProvenance{Verify Exact File Content SHA-256}
+  ValidateProvenance -->|Stale / Mismatched Hash| DropEvidence[Reject Evidence]
   DropEvidence --> BoundedLoop
 
-  ValidateProvenance -->|Valid Provenance| ApplyPolicy{Deterministic Policy}
-  ApplyPolicy -->|Contradiction| Disproved[Mark DISPROVED]
-  ApplyPolicy -->|Satisfied| Verified[Mark VERIFIED]
-  ApplyPolicy -->|Inconclusive| BoundedLoop
+  ValidateProvenance -->|Verified Provenance| ApplyPolicy{Deterministic Policy}
+  ApplyPolicy -->|Contradiction Discovered| Disproved[Mark DISPROVED]
+  ApplyPolicy -->|Fact Proved| Verified[Mark VERIFIED]
+  ApplyPolicy -->|Inconclusive| InconclusiveState
 
   style Start fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1
-  style LLMAction fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
   style CheckCat fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
   style CheckBudget fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
-  style SchemaValidate fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style QueryPlan fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
   style ExecuteTool fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style RecordToolRun fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style CheckToolStatus fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style FetchSnippet fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style CheckSufficiency fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
   style IssueEvidence fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
   style ValidateProvenance fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
   style ApplyPolicy fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
@@ -232,6 +235,9 @@ flowchart TD
   style Disproved fill:#fef2f2,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
   style Verified fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
   style InconclusiveState fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#475569
+  style DropEvidence fill:#fef2f2,stroke:#dc2626,stroke-width:1.5px,color:#7f1d1d
+  style ToolFailEvent fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#475569
+  style BoundedLoop fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#475569
 ```
 
 ---
@@ -305,6 +311,7 @@ stateDiagram-v2
   EXTRACTING_OBLIGATIONS --> VERIFYING: Obligations saved
   EXTRACTING_OBLIGATIONS --> FAILED: Malformed payload
 
+
   VERIFYING --> HUMAN_WAIT: Authority gap detected
   HUMAN_WAIT --> QUEUED: Human submits answer
   
@@ -329,30 +336,47 @@ stateDiagram-v2
 
 PlanProof is not a simple `prompt -> model -> response` wrapper. It is a stateful, resilient agentic system engineered for strict correctness:
 
-1. **Durable Workflow State**: The LangGraph engine persists every iteration, obligation transition, and event directly into MongoDB Atlas. Workflows survive worker restarts and deploy rollouts.
-2. **Dynamic Tool Selection**: The agent evaluates claims by choosing from an allowlisted suite of repository inspection tools based on empirical findings.
-3. **Bounded Re-planning**: If a proposed tool call fails or returns an invalid schema, the agent replans within strict budget limits rather than crashing.
-4. **Server-Owned Evidence Authority**: Models propose findings, but evidence IDs and cryptographic hashes are minted strictly by deterministic backend code.
-5. **Decoupled Asynchronous Execution**: Web requests never block on LLM reasoning or repository parsing. Execution is handled by a dedicated Dramatiq worker pool.
-6. **Provider-Neutral Fallback**: Automatic failover from OpenRouter to AIMLAPI prevents provider outages from breaking customer verification runs.
-7. **Human-in-the-Loop Interruption**: When codebase authority is insufficient, the system pauses execution cleanly and re-enters the graph upon human input without losing prior findings.
+1. **LLM-Assisted Atomic Obligation Extraction**: Decomposes high-level plans into structured, testable proof obligations across database schemas, API contracts, symbols, and business rules.
+2. **Durable MongoDB-Owned Workflow State**: State transitions, obligation evaluations, and tool telemetry are persisted directly into MongoDB Atlas. Workflows survive worker restarts and deployments.
+3. **Deterministic Bounded Repository Investigation**: Investigation queries are planned deterministically from extracted identifiers and hints, executing against immutable snapshot files with strict bounds.
+4. **Server-Owned Evidence Authority**: Models propose obligations, but evidence records and cryptographic SHA-256 hashes are minted exclusively by deterministic backend code after audited tool runs.
+5. **Async Redis/Dramatiq Worker Execution**: Long-running verification runs execute asynchronously in dedicated worker processes, decoupled from web API requests.
+6. **Provider Retry & Fallback**: Automatic failover from OpenRouter to AIMLAPI prevents provider outages from breaking customer verification runs.
+7. **Persisted HITL Pause + Requeue/Resumption**: When codebase authority is insufficient, the system pauses execution cleanly in `HUMAN_WAIT` and re-enters the graph upon human input without losing prior findings.
 
 ---
 
 ## Model vs. Deterministic Authority
 
-PlanProof enforces strict separation of concerns:
+PlanProof enforces strict separation of concerns between model proposals and deterministic authority:
 
-| Concern | Model Allowed? | Deterministic Owner | Enforcement Mechanism |
+| Concern | Model Authority? | Deterministic Owner | Enforcement Mechanism |
 | :--- | :---: | :--- | :--- |
-| **Claim Decomposition** | Proposes | Server Validator | Pydantic validation, statement normalization, duplicate deduplication |
-| **Tool Action Selection** | Proposes | Allowlist & Dispatcher | Strict tool schema validation; rejects unknown tools or malformed parameters |
-| **Repository Facts** | No | Deterministic Tools | Python `ast.parse` and lexical search against immutable commit snapshots |
-| **Evidence Minting** | No | `EvidenceAuthority` | Issued only on tool success; binds SHA, tool run ID, file path, and content hash |
-| **Snapshot Identity** | No | Backend Ingestion | Project-scoped immutable SHA resolution from GitHub API |
+| **Claim Decomposition** | Proposes | Server Validator | Pydantic schema validation, statement normalization, deduplication |
+| **Investigation Query Planning** | No (Deterministic) | Server Query Planner | Extracts exact identifiers, quoted tokens, and paths from statements and hints |
+| **Repository Facts** | No | Deterministic Tools | Python stdlib `ast.parse`, TS/JS regex symbol extraction, and lexical search |
+| **Evidence Minting** | No | `EvidenceAuthority` | Issued only on successful tool run; binds snapshot SHA, line range, and content hash |
+| **Evidence Relevance / Sufficiency** | No | Deterministic Evaluator | Validates real source snippet against atomic proposition before issuing evidence |
+| **Snapshot Identity** | No | Backend Ingestion | Project-scoped immutable Git commit SHA resolution |
 | **Investigation Budgets** | No | Runtime Settings | Hard limits on iterations, tool calls, model calls, and context bytes |
 | **Obligation Status** | No | Deterministic Policy | Rule-based evaluator assigns `VERIFIED`, `DISPROVED`, `INCONCLUSIVE`, or `HUMAN_REQUIRED` |
-| **Final Plan Gate** | No | Gate Policy Evaluator | Deterministic state machine computes `VERIFIED_FOR_EXECUTION` or `BLOCKED` |
+| **Final Plan Gate** | No | Gate Policy Evaluator | Deterministic state machine computes `COMPLETE`, `BLOCKED`, `INCONCLUSIVE`, or `HUMAN_DECISION_REQUIRED` |
+| **Business / Intent Authority** | No | Human Stakeholder | Persisted human decision record resumes workflow |
+
+### Clearly Distinguished Outcome Taxonomy
+
+- **Obligation Outcomes**:
+  - `VERIFIED`: Evidence conclusively proves the atomic code claim.
+  - `DISPROVED`: Immutable code counter-evidence directly contradicts the claim.
+  - `INCONCLUSIVE`: Tool budget exhausted or evidence insufficient without counter-evidence.
+  - `HUMAN_REQUIRED`: Claim requires external product/business authority not present in code.
+
+- **Run & Plan Gate Outcomes**:
+  - `COMPLETE`: All critical proof obligations verified; plan gate passed.
+  - `BLOCKED`: Direct code contradiction found; execution forbidden.
+  - `INCONCLUSIVE`: Non-critical ambiguity or budget limit reached; safe non-execution default.
+  - `HUMAN_WAIT` / `HUMAN_DECISION_REQUIRED`: Workflow paused awaiting authorized human decision.
+  - `FAILED`: System error or malformed payload safely aborted.
 
 ---
 
@@ -394,16 +418,16 @@ PlanProof equips the agent with a bounded suite of deterministic inspection tool
 
 ### Why One Orchestrator (Not a Multi-Agent Swarm)?
 
-PlanProof intentionally uses a single, durable LangGraph state machine rather than an autonomous multi-agent swarm:
+PlanProof intentionally uses a single, durable orchestrator rather than an autonomous multi-agent swarm:
 
 1. **Deterministic Causal Traceability**: Every tool run, evidence item, and status transition is recorded in a single sequential audit log.
 2. **Zero Nondeterministic Consensus Overhead**: Multi-agent "debates" waste tokens, increase latency, and produce non-reproducible outcomes.
-3. **Simplified Resumption & Checkpointing**: Persisting a single state machine across worker restarts and human interruptions is robust and verifiable.
+3. **Simplified Resumption & Persistence**: Persisting a single state machine across worker restarts and human interruptions in MongoDB is robust and verifiable.
 4. **Direct Fast-Path Resolution**: Many obligations are resolved by deterministic validators without invoking an LLM at all.
 
-### Why AST Symbol Indexing (Not Premature Vector RAG)?
+### Why Exact Symbol Indexing (Not Premature Vector RAG)?
 
-1. **Exact Codebase Truth**: Code verification requires exact symbol definitions, parameter types, and line ranges. Semantic vector similarity frequently returns false positives that lack syntactic authority.
+1. **Exact Codebase Truth**: Code verification requires exact symbol definitions, paths, source ranges, and content-hash provenance. Semantic vector similarity frequently returns false positives that lack syntactic authority.
 2. **Cryptographic Provenance**: Evidence must be verifiable against exact SHA-256 hashes of source files in immutable snapshots.
 3. **Zero Embedding Latency/Cost**: AST and lexical indexing are computed once during repository ingestion in milliseconds.
 
@@ -429,7 +453,7 @@ PlanProof avoids ephemeral in-memory state. State is categorized cleanly across 
   - `events`: Monotonically sequenced run progress events.
   - `eval_runs`: Versioned offline evaluation results and regression records.
 - **Google Cloud Memorystore (Redis)**: Asynchronous queue transport for Dramatiq worker messages and rate-limiting counters.
-- **LangGraph Checkpoint Model**: Stateless worker execution with state reloaded from MongoDB on each invocation.
+- **Worker Execution Model**: Durable run state is application-owned in MongoDB; Redis/Dramatiq transports and resumes work across worker invocations.
 
 ---
 
@@ -458,7 +482,7 @@ When the orchestrator encounters a claim categorized as `BUSINESS_RULE` or `CROS
 | :--- | :--- |
 | **Primary Model Timeout / 5xx** | Automatic retry with exponential backoff; transparent failover to AIMLAPI fallback model. |
 | **Both Model Providers Fail** | Run transitions to `FAILED` with safe error class; **zero fabricated verifications**. |
-| **Malformed Structured JSON** | Rejection by Pydantic; agent receives structured feedback and replans within budget. |
+| **Malformed Structured JSON** | Rejection by Pydantic; run fails safely without fabricated verification. |
 | **Disallowed Tool Request** | Tool dispatcher rejects unauthorized tool name or illegal parameter; logs security event. |
 | **Tool Execution Failure** | Tool run recorded as `FAILED`; no evidence issued; orchestrator continues. |
 | **Model Invented Evidence ID** | Rejected immediately by `EvidenceAuthority`; cannot affect obligation status. |
@@ -491,8 +515,8 @@ PlanProof is fully deployed and validated on Google Cloud Platform:
   - Worker Pool: `planproof-worker` (Cloud Run Worker Pool in `asia-south1`)
   - Memorystore: Private VPC Redis instance
   - MongoDB Atlas: `planproofapp` cluster with 14 operational collections
-- **Live GitHub App Smoke Passed**: Authenticated session verified for `@NikhilRaikwar` (Installation ID: `163541413`).
-- **Production E2E Browser Test Passed**: Deployed Playwright test executed in **17.9s** verifying:
+- **Live GitHub App Smoke Passed**: Authenticated GitHub App sessions verified with least-privilege read-only permissions.
+- **Production E2E Validation Passed**: Complete pre-flight verification workflow validated:
   - Repository selection and immutable snapshot creation (`READY`).
   - Obligation extraction and deterministic tool execution.
   - Human question pause (`HUMAN_WAIT`) and successful resumption.

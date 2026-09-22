@@ -29,7 +29,7 @@ class EvidenceAuthority:
             not tool_run
             or tool_run.status != ToolRunStatus.SUCCEEDED
             or tool_run.snapshot_id != snapshot_id
-            or tool_run.tool_name not in {"read_file_range", "search_code_lexical"}
+            or tool_run.tool_name not in {"read_file_range", "search_code_lexical", "find_symbol"}
         ):
             raise ValueError("tool run is not authorized to issue evidence for this snapshot")
         file = await self.repository.database.repository_files.find_one(
@@ -71,6 +71,7 @@ class EvidenceAuthority:
         if evidence.evidence_type != EvidenceType.SOURCE_RANGE or tool_run.tool_name not in {
             "read_file_range",
             "search_code_lexical",
+            "find_symbol",
         }:
             raise ValueError("tool cannot issue this evidence type")
         file = await self.repository.database.repository_files.find_one(

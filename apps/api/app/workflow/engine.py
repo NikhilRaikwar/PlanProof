@@ -678,25 +678,41 @@ class VerificationWorkflow:
                     run.tool_call_count += 1
                     if symbols:
                         sym_match = symbols[0]
+                        file_doc = await self.verification.database.repository_files.find_one(
+                            {"snapshot_id": run.snapshot_id, "path": sym_match["path"]}
+                        )
+                        if not file_doc:
+                            continue
+                        lines = file_doc.get("text", "").splitlines()
+                        start_l = max(1, sym_match.get("line_start", 1))
+                        end_l = min(len(lines), max(start_l, sym_match.get("line_end", start_l)))
+                        matched_snippet = "\n".join(lines[start_l - 1 : end_l])
+
                         if not check_evidence_sufficiency(
-                            obligation, sym_match["path"], sym_match.get("qualified_name", ""), sym
+                            obligation, sym_match["path"], matched_snippet, sym
                         ):
                             continue
                         tool_doc = await self.verification.database.tool_runs.find_one(
                             {"run_id": run.id, "tool_name": "find_symbol"},
                             sort=[("started_at", -1)],
                         )
+                        if (
+                            not tool_doc
+                            or tool_doc.get("status") != "succeeded"
+                            or tool_doc.get("snapshot_id") != run.snapshot_id
+                        ):
+                            continue
                         evidence = await EvidenceAuthority(self.verification).issue_source_range(
                             snapshot_id=run.snapshot_id,
                             run_id=run.id,
                             obligation_id=obligation.id,
                             matched_query=sym,
                             relationship="SUPPORTS",
-                            tool_run_id=tool_doc["id"] if tool_doc else "tool-symbol-search",
+                            tool_run_id=tool_doc["id"],
                             path=sym_match["path"],
-                            line_start=sym_match["line_start"],
-                            line_end=sym_match["line_end"],
-                            summary=f"Symbol '{sym_match['qualified_name']}' ({sym_match.get('kind', 'symbol')}) found in {sym_match['path']}:{sym_match['line_start']}-{sym_match['line_end']}",
+                            line_start=start_l,
+                            line_end=end_l,
+                            summary=f"Symbol '{sym_match['qualified_name']}' ({sym_match.get('kind', 'symbol')}) found in {sym_match['path']}:{start_l}-{end_l}",
                         )
                         await EvidenceAuthority(self.verification).validate(evidence.id)
                         obligation.evidence_ids.append(evidence.id)

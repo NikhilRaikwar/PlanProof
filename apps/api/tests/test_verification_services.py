@@ -164,3 +164,77 @@ async def test_obligations_are_server_owned_pending_and_deduplicated() -> None:
                 ]
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_find_symbol_evidence_authority_issuance_and_validation() -> None:
+    text = "class PaymentService:\n    def process_refund(self, amount: int) -> bool:\n        return True\n"
+    file = {
+        "snapshot_id": "snap-1",
+        "path": "services/payment.py",
+        "text": text,
+        "content_hash": hashlib.sha256(text.encode()).hexdigest(),
+    }
+    tool = ToolRun(
+        snapshot_id="snap-1",
+        tool_name="find_symbol",
+        input_hash="f" * 64,
+        status=ToolRunStatus.SUCCEEDED,
+        result_count=1,
+        duration_ms=5,
+    )
+    saved = {}
+    repo = SimpleNamespace(database=SimpleNamespace(repository_files=OneCollection(file)))
+    repo.get_tool_run = AsyncMock(return_value=tool)
+
+    async def create(item):
+        saved[item.id] = item
+        return item
+
+    repo.create_evidence = create
+    repo.get_evidence = AsyncMock(side_effect=lambda item_id: saved.get(item_id))
+    authority = EvidenceAuthority(repo)
+
+    # Valid issuance from find_symbol tool run
+    evidence = await authority.issue_source_range(
+        snapshot_id="snap-1",
+        tool_run_id=tool.id,
+        path="services/payment.py",
+        line_start=1,
+        line_end=3,
+        summary="Symbol 'PaymentService.process_refund' found",
+        run_id="run-1",
+        obligation_id="ob-1",
+        matched_query="process_refund",
+        relationship="SUPPORTS",
+    )
+    assert evidence.evidence_type.value == "SOURCE_RANGE"
+    assert evidence.run_id == "run-1"
+    assert evidence.obligation_id == "ob-1"
+    validated = await authority.validate(evidence.id)
+    assert validated.id == evidence.id
+
+    # Failed tool run cannot issue evidence
+    repo.get_tool_run.return_value = tool.model_copy(update={"status": ToolRunStatus.FAILED})
+    with pytest.raises(ValueError, match="not authorized"):
+        await authority.issue_source_range(
+            snapshot_id="snap-1",
+            tool_run_id=tool.id,
+            path="services/payment.py",
+            line_start=1,
+            line_end=3,
+            summary="should fail",
+        )
+
+    # Cross-snapshot tool run cannot issue evidence
+    repo.get_tool_run.return_value = tool.model_copy(update={"snapshot_id": "snap-2"})
+    with pytest.raises(ValueError, match="not authorized"):
+        await authority.issue_source_range(
+            snapshot_id="snap-1",
+            tool_run_id=tool.id,
+            path="services/payment.py",
+            line_start=1,
+            line_end=3,
+            summary="should fail",
+        )
+

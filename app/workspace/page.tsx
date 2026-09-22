@@ -33,12 +33,14 @@ export default function WorkspaceDashboardPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({})
   const [recentRuns, setRecentRuns] = useState<VerificationRun[]>([])
+  const [engineReady, setEngineReady] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const loadData = async () => {
     setLoading(true)
     setError('')
+    void api.health().then(setEngineReady).catch(() => setEngineReady(false))
     try {
       const [sessionData, projectsData, runsData] = await Promise.all([
         api.session().catch(() => null),
@@ -113,8 +115,8 @@ export default function WorkspaceDashboardPage() {
             <Layers3 size={14} />
             <span>Select repository</span>
           </Link>
-          <Link href="/workspace/new-verification" className="btn-verify-plan-cta" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
-            <Plus size={15} strokeWidth={2.5} />
+          <Link href="/workspace/new-verification" className="btn-header-cta">
+            <Plus size={14} strokeWidth={2.5} />
             <span>Verify a plan</span>
           </Link>
         </div>
@@ -224,21 +226,21 @@ export default function WorkspaceDashboardPage() {
         <div className="card-panel-white">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
             <div>
-              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: '#16A34A', letterSpacing: 0.5 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: engineReady === false ? '#DC2626' : '#16A34A', letterSpacing: 0.5 }}>
                 VERIFICATION ENGINE
               </span>
               <strong style={{ fontSize: 22, color: '#0F172A', display: 'block', marginTop: 4 }}>
-                Operational
+                {engineReady === null ? 'Checking…' : engineReady ? 'Operational' : 'Unavailable'}
               </strong>
             </div>
-            <div style={{ width: 38, height: 38, borderRadius: 10, background: '#DCFCE7', color: '#16A34A', display: 'grid', placeItems: 'center' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: engineReady === false ? '#FEE2E2' : '#DCFCE7', color: engineReady === false ? '#DC2626' : '#16A34A', display: 'grid', placeItems: 'center' }}>
               <ShieldCheck size={20} />
             </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid #F1F5F9', fontSize: 12 }}>
             <span style={{ color: '#64748B' }}>Deterministic Gate</span>
-            <span style={{ color: '#0F172A', fontWeight: 600 }}>Deterministic Evidence Gate</span>
+            <span style={{ color: '#0F172A', fontWeight: 600 }}>{engineReady === false ? 'Engine Offline' : 'Deterministic Evidence Gate'}</span>
           </div>
         </div>
       </div>
@@ -437,11 +439,11 @@ export default function WorkspaceDashboardPage() {
 
                         <span 
                           className={`badge-pill-base ${
-                            isVerified ? 'badge-verified' : isBlocked ? 'badge-blocked' : isHuman ? 'badge-human' : 'badge-queued'
+                            isVerified ? 'badge-verified' : isBlocked ? 'badge-blocked' : isHuman ? 'badge-human' : run.status === 'INCONCLUSIVE' ? 'badge-inconclusive' : 'badge-queued'
                           }`}
                           style={{ fontSize: 10.5 }}
                         >
-                          {run.status.replaceAll('_', ' ')}
+                          {isHuman ? 'HUMAN DECISION REQUIRED' : run.status === 'INCONCLUSIVE' ? 'INCONCLUSIVE' : run.status.replaceAll('_', ' ')}
                         </span>
                       </div>
 

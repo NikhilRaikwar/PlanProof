@@ -10,35 +10,35 @@ export interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, size = 'md', showIcon = true }: StatusBadgeProps) {
-  switch (status.toLowerCase()) {
-    case 'verified':
-      return (
-        <span className={`status-badge status-verified ${size === 'sm' ? 'text-[9.5px] px-1.5 py-0.5' : ''}`}>
-          {showIcon && <CheckCircle2 size={size === 'sm' ? 10 : 12} />}
-          <span>VERIFIED</span>
-        </span>
-      )
-    case 'disproved':
-      return (
-        <span className={`status-badge status-disproved ${size === 'sm' ? 'text-[9.5px] px-1.5 py-0.5' : ''}`}>
-          {showIcon && <XCircle size={size === 'sm' ? 10 : 12} />}
-          <span>DISPROVED</span>
-        </span>
-      )
-    case 'human':
-    case 'human required':
-      return (
-        <span className={`status-badge status-human ${size === 'sm' ? 'text-[9.5px] px-1.5 py-0.5' : ''}`}>
-          {showIcon && <AlertTriangle size={size === 'sm' ? 10 : 12} />}
-          <span>HUMAN REQUIRED</span>
-        </span>
-      )
-    default:
-      return (
-        <span className={`status-badge status-inconclusive ${size === 'sm' ? 'text-[9.5px] px-1.5 py-0.5' : ''}`}>
-          {showIcon && <Clock3 size={size === 'sm' ? 10 : 12} />}
-          <span>INCONCLUSIVE</span>
-        </span>
-      )
+  const norm = status.toLowerCase()
+  if (norm === 'verified' || norm === 'complete' || norm === 'ready') {
+    return (
+      <span className={`badge-pill-base badge-verified ${size === 'sm' ? 'text-[9.5px] px-1.5 py-0.5' : ''}`}>
+        {showIcon && <CheckCircle2 size={12} />}
+        <span>VERIFIED</span>
+      </span>
+    )
   }
+  if (norm === 'disproved' || norm === 'blocked' || norm === 'failed') {
+    return (
+      <span className={`badge-pill-base badge-blocked ${size === 'sm' ? 'text-[9.5px] px-1.5 py-0.5' : ''}`}>
+        {showIcon && <XCircle size={12} />}
+        <span>{norm === 'disproved' ? 'DISPROVED' : norm.toUpperCase()}</span>
+      </span>
+    )
+  }
+  if (norm === 'human' || norm === 'human required' || norm === 'human_required' || norm === 'human_wait' || norm === 'human decision required') {
+    return (
+      <span className={`badge-pill-base badge-human ${size === 'sm' ? 'text-[9.5px] px-1.5 py-0.5' : ''}`}>
+        {showIcon && <AlertTriangle size={12} />}
+        <span>HUMAN DECISION REQUIRED</span>
+      </span>
+    )
+  }
+  return (
+    <span className={`badge-pill-base badge-inconclusive ${size === 'sm' ? 'text-[9.5px] px-1.5 py-0.5' : ''}`}>
+      {showIcon && <Clock3 size={12} />}
+      <span>{status.toUpperCase().replaceAll('_', ' ')}</span>
+    </span>
+  )
 }

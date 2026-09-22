@@ -2829,4 +2829,106 @@ body {
   }
 }
 
+/* --------------------------------------------------------------------------
+   SHARED STATUS BADGE PILL SYSTEM
+   -------------------------------------------------------------------------- */
+.badge-pill-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  font-size: 10.5px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.badge-pill-base svg {
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  min-height: 12px;
+  flex-shrink: 0;
+}
+
+.badge-verified {
+  background: #ECFDF5;
+  color: #065F46;
+  border-color: #A7F3D0;
+}
+
+.badge-blocked {
+  background: #FEF2F2;
+  color: #991B1B;
+  border-color: #FECACA;
+}
+
+.badge-human {
+  background: #FFFBEB;
+  color: #92400E;
+  border-color: #FDE68A;
+}
+
+.badge-inconclusive,
+.badge-queued {
+  background: #F1F5F9;
+  color: #475569;
+  border-color: #CBD5E1;
+}
+
+/* --------------------------------------------------------------------------
+   COMPACT HEADER CTA (Dashboard & Runs header only)
+   -------------------------------------------------------------------------- */
+.btn-header-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 13px;
+  min-height: 32px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #FFFFFF;
+  background: var(--accent-orange, #EA580C);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(234, 88, 12, 0.2);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-header-cta:hover {
+  background: #C2410C;
+  transform: translateY(-1px);
+}
+
+/* --------------------------------------------------------------------------
+   RUN REPORT RESPONSIVE METRIC GRID (4x2 on Desktop, 2x4 on Tablet)
+   -------------------------------------------------------------------------- */
+.run-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .run-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .run-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
 
