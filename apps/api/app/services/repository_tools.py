@@ -44,6 +44,10 @@ class FindSymbolInput(ToolInput):
     path: str | None = None
 
 
+class CheckPathMembershipInput(ToolInput):
+    path: str
+
+
 class RepositoryTools:
     def __init__(
         self, runs: RunRepository, audit: VerificationRepository, run_id: str | None = None
@@ -148,6 +152,27 @@ class RepositoryTools:
             .limit(data.limit)
         ]
         await self._audit("find_symbol", data, len(result))
+        return result
+
+    async def check_path_membership(self, data: CheckPathMembershipInput) -> dict:
+        await self._ready(data.snapshot_id)
+        path = self._safe_path(data.path)
+        snapshot = await self.runs.get_snapshot(data.snapshot_id)
+        if not snapshot or snapshot.status != SnapshotStatus.READY:
+            raise ValueError("snapshot is not READY")
+
+        item = await self.database.repository_files.find_one(
+            {"snapshot_id": data.snapshot_id, "path": path}
+        )
+        present = item is not None
+        result = {
+            "path": path,
+            "present": present,
+            "snapshot_id": data.snapshot_id,
+            "content_hash": item["content_hash"] if item else None,
+            "manifest_complete": True,
+        }
+        await self._audit("check_path_membership", data, 1 if present else 0)
         return result
 
     async def find_references(self, data: FindSymbolInput) -> dict:

@@ -4,9 +4,86 @@ import re
 
 from pydantic import BaseModel, Field
 
-from app.domain.verification import Criticality, ObligationCategory, ProofObligation, SemanticRole
+from app.domain.verification import (
+    Criticality,
+    ObligationCategory,
+    ProofObligation,
+    SemanticRole,
+    TargetIntent,
+)
 from app.repositories.verification import VerificationRepository
 from app.services.models import ModelGateway, ModelRequest, parse_json_object
+
+_PATH_EXT_RE = r"(?:@\/|[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:tsx?|jsx?|py|json|yaml|yml|toml|sql|md|css|env|go|rs|rb|java|c|cpp|h|hpp|sh)"
+
+
+def _extract_canonical_paths_from_text(text: str) -> list[str]:
+    """Extract explicit file paths preserving exact case and canonical git posix semantics."""
+    paths: list[str] = []
+    for match in re.finditer(_PATH_EXT_RE, text):
+        raw = match.group(0).strip().strip("'\"`").replace("\\", "/")
+        if raw.startswith("@/"):
+            raw = raw[2:]
+        if raw.startswith("./"):
+            raw = raw[2:]
+        if raw in {"import.meta.env", "process.env"} or raw.startswith("import.meta") or raw.startswith("process.env"):
+            continue
+        if raw and not raw.startswith("/") and ".." not in raw and "\x00" not in raw:
+            paths.append(raw)
+
+    seen = set()
+    deduped = []
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            deduped.append(p)
+    return deduped
+
+
+def classify_target_intent(statement: str) -> TargetIntent:
+    """
+    Classify the target intent of a proposed action:
+    - MUST_EXIST: Verbs like update, modify, replace in, delete, remove from, refactor, rename, patch, edit
+    - CREATE_NEW: Verbs like create, add, introduce, scaffold, generate, implement
+    - CREATE_OR_UPDATE: Both creation and update mentioned
+    - UNKNOWN: Ambiguous phrasing
+    """
+    s = statement.strip().lower()
+    if "create or update" in s or "create and update" in s or "create and then update" in s:
+        return TargetIntent.CREATE_OR_UPDATE
+    if "introduce" in s and ("modify" in s or "update" in s):
+        return TargetIntent.CREATE_OR_UPDATE
+    if s.startswith("do not ") or "don't " in s:
+        return TargetIntent.UNKNOWN
+
+    is_create = any(
+        re.search(rf"\b{verb}\b", s)
+        for verb in ["create", "add", "introduce", "scaffold", "generate", "implement"]
+    )
+    is_modify = any(
+        re.search(rf"\b{verb}\b", s)
+        for verb in [
+            "update",
+            "modify",
+            "replace",
+            "remove",
+            "delete",
+            "rename",
+            "refactor",
+            "edit",
+            "patch",
+            "migrate away from",
+            "deprecate in",
+        ]
+    )
+
+    if is_create and is_modify:
+        return TargetIntent.CREATE_OR_UPDATE
+    if is_modify:
+        return TargetIntent.MUST_EXIST
+    if is_create:
+        return TargetIntent.CREATE_NEW
+    return TargetIntent.UNKNOWN
 
 
 class ObligationProposal(BaseModel):
@@ -65,9 +142,46 @@ class ObligationExtractionService:
         except TypeError:
             result = await self.gateway.complete(req)
         proposals = ObligationProposals.model_validate(parse_json_object(result.content))
-        output = []
+
+        # Check for implied MUST_EXIST prerequisite dependencies on proposed actions
+        derived_prerequisites: list[ObligationProposal] = []
+        all_proposed_statements = {p.statement.strip().casefold() for p in proposals.obligations}
+
         for proposal in proposals.obligations:
+            if proposal.semantic_role == SemanticRole.PROPOSED_ACTION:
+                intent = classify_target_intent(proposal.statement)
+                if intent == TargetIntent.MUST_EXIST:
+                    paths = _extract_canonical_paths_from_text(
+                        proposal.statement + " " + " ".join(proposal.verification_hints)
+                    )
+                    for path in paths:
+                        prereq_stmt = f"{path} exists in the current snapshot."
+                        if prereq_stmt.casefold() not in all_proposed_statements:
+                            all_proposed_statements.add(prereq_stmt.casefold())
+                            derived_prerequisites.append(
+                                ObligationProposal(
+                                    statement=prereq_stmt,
+                                    semantic_role=SemanticRole.EXISTING_DEPENDENCY,
+                                    category=ObligationCategory.DEPENDENCY,
+                                    criticality=Criticality.HIGH,
+                                    verification_hints=[path],
+                                )
+                            )
+
+        combined_proposals = list(proposals.obligations) + derived_prerequisites
+
+        output = []
+        for proposal in combined_proposals:
             normalized = re.sub(r"\s+", " ", proposal.statement.strip().casefold())
+            metadata = {
+                "provider": result.provider,
+                "model": result.model,
+                "prompt_tokens": str(result.prompt_tokens or 0),
+                "completion_tokens": str(result.completion_tokens or 0),
+            }
+            if proposal.semantic_role == SemanticRole.PROPOSED_ACTION:
+                metadata["target_intent"] = str(classify_target_intent(proposal.statement))
+
             output.append(
                 await self.repository.create_obligation(
                     ProofObligation(
@@ -81,12 +195,7 @@ class ObligationExtractionService:
                         category=proposal.category,
                         criticality=proposal.criticality,
                         verification_hints=proposal.verification_hints,
-                        proposal_metadata={
-                            "provider": result.provider,
-                            "model": result.model,
-                            "prompt_tokens": str(result.prompt_tokens or 0),
-                            "completion_tokens": str(result.completion_tokens or 0),
-                        },
+                        proposal_metadata=metadata,
                     )
                 )
             )

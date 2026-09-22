@@ -303,7 +303,8 @@ class PlanRevisionService:
                 "7. Fact Grounding: Every PlanChange with KEEP, MODIFY, or REMOVE concerning current repository state MUST cite a valid `basis_fact_id` from authorized_facts or a valid human_decision_id.\n"
                 "8. Absence Invariant: Absence of evidence is NOT evidence of absence. If a target file or symbol is unresolved/inconclusive, do NOT claim 'file does not exist' or mark REMOVE unless an explicit AuthorizedFact establishes that negative fact. State: 'The candidate plan\\'s <target> target was not established by the verified snapshot evidence. Resolve the actual implementation target before implementation.' and mark UNRESOLVED.\n"
                 "9. ADD may be proposed without present-state basis facts, but must not pretend the artifact exists today.\n"
-                "10. If a step relies on unverified dependencies or requires human authority, mark confidence_basis as UNRESOLVED."
+                "10. If a step relies on unverified dependencies or requires human authority, mark confidence_basis as UNRESOLVED.\n"
+                "11. Disproved Target Absence: If an AuthorizedFact with relationship CONTRADICTS establishes that an assumed target path does not exist in the snapshot manifest, do NOT claim the file currently exists and do NOT prescribe modifying an absent file. Instead, emit an advisory action stating that the submitted target path is not present in the verified snapshot, and guide the engineer to create the new module at the proposed path or locate the intended existing module before implementation. Do NOT put absent files in existing_target_files; list them in proposed_new_files if creation is intended."
             )
 
             response: ModelRevisedPlanResponse | None = None

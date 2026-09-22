@@ -19,6 +19,7 @@ class FakeRuns:
         self.run = run
         self.update_run = AsyncMock()
         self.append_event = AsyncMock()
+        self.get_snapshot = AsyncMock(return_value=None)
         self.get_plan_version = AsyncMock(
             return_value=SimpleNamespace(change_request="c", candidate_plan="p")
         )
@@ -33,11 +34,29 @@ class FakeVerification:
         self.create_tool_run = AsyncMock()
         self.update_obligation = AsyncMock()
         self.database = SimpleNamespace(
-            events=SimpleNamespace(find_one=AsyncMock(return_value=None))
+            events=SimpleNamespace(find_one=AsyncMock(return_value=None)),
+            evidence=SimpleNamespace(find=lambda *args, **kwargs: AsyncIteratorMock([])),
+            repository_files=SimpleNamespace(find_one=AsyncMock(return_value=None)),
+            tool_runs=SimpleNamespace(find_one=AsyncMock(return_value=None)),
         )
 
     async def list_run_obligations(self, _id):
         return self.obligations
+
+
+class AsyncIteratorMock:
+    def __init__(self, items):
+        self.items = items
+
+    def __aiter__(self):
+        self._iter = iter(self.items)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
 
 
 @pytest.mark.asyncio

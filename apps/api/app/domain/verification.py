@@ -18,6 +18,14 @@ class EvidenceType(StrEnum):
     SOURCE_RANGE = "SOURCE_RANGE"
     SYMBOL = "SYMBOL"
     SCHEMA = "SCHEMA"
+    SNAPSHOT_PATH_MEMBERSHIP = "SNAPSHOT_PATH_MEMBERSHIP"
+
+
+class TargetIntent(StrEnum):
+    MUST_EXIST = "MUST_EXIST"
+    CREATE_NEW = "CREATE_NEW"
+    CREATE_OR_UPDATE = "CREATE_OR_UPDATE"
+    UNKNOWN = "UNKNOWN"
 
 
 class ValidatorResult(StrEnum):

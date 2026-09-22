@@ -7,8 +7,9 @@ from langgraph.graph import END, START, StateGraph
 
 from app.core.config import Settings
 from app.domain.revised_plans import RevisedPlanStatus
-from app.domain.runs import HumanQuestion, RunEvent, VerificationRunStatus
+from app.domain.runs import HumanQuestion, RunEvent, SnapshotStatus, VerificationRunStatus
 from app.domain.verification import (
+    EvidenceType,
     ObligationCategory,
     ObligationStatus,
     SemanticRole,
@@ -22,6 +23,7 @@ from app.services.investigation_planning import InvestigationPlanningService
 from app.services.models import ProviderGateway
 from app.services.obligations import ObligationExtractionService
 from app.services.repository_tools import (
+    CheckPathMembershipInput,
     FindSymbolInput,
     ReadFileRangeInput,
     RepositoryTools,
@@ -165,30 +167,67 @@ STOP_WORDS = {
 }
 
 
+_PATH_EXTENSIONS_SET = {
+    ".tsx",
+    ".ts",
+    ".jsx",
+    ".js",
+    ".py",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".sql",
+    ".md",
+    ".css",
+    ".env",
+    ".go",
+    ".rs",
+    ".rb",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".sh",
+}
+
+_PATH_REGEX = (
+    r"(?:@\/|[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:tsx?|jsx?|py|json|yaml|yml|toml|sql|md|css|env|go|rs|rb|java|c|cpp|h|hpp|sh)"
+)
+
+
+def _is_file_path(token: str) -> bool:
+    """Returns True if the token represents a file path rather than a code identifier."""
+    if not token or not isinstance(token, str):
+        return False
+    clean = token.strip().replace("\\", "/")
+    if "/" in clean:
+        return True
+    return any(clean.lower().endswith(ext) for ext in _PATH_EXTENSIONS_SET)
+
+
 def _extract_explicit_paths(obligation) -> list[str]:
-    """Extract explicit file paths referenced in statement or hints."""
+    """Extract explicit file paths referenced in statement or hints, preserving exact case and git posix semantics."""
     paths: list[str] = []
     text = obligation.statement + " " + " ".join(obligation.verification_hints)
 
-    # 1. Match paths with file extensions
-    for p in re.findall(
-        r"(?:@\/|[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:tsx?|jsx?|py|json|yaml|yml|toml|sql|md|css|env)",
-        text,
-    ):
+    for p in re.findall(_PATH_REGEX, text):
         clean = p.strip().strip("'\"`").replace("\\", "/")
         if clean.startswith("@/"):
             clean = clean[2:]
         if clean.startswith("./"):
             clean = clean[2:]
-        if clean and not clean.startswith("/") and ".." not in clean:
+        if clean in {"import.meta.env", "process.env"} or clean.startswith("import.meta") or clean.startswith("process.env"):
+            continue
+        if clean and not clean.startswith("/") and ".." not in clean and "\x00" not in clean:
             paths.append(clean)
 
-    # Deduplicate preserving order
     seen = set()
     deduped = []
     for p in paths:
-        if p.lower() not in seen:
-            seen.add(p.lower())
+        if p not in seen:
+            seen.add(p)
             deduped.append(p)
     return deduped
 
@@ -205,11 +244,11 @@ def _extract_explicit_imported_identifiers(obligation) -> list[str]:
         cleaned_match = match.replace("{", "").replace("}", "")
         for item in cleaned_match.split(","):
             ident = item.strip()
-            if ident and ident.lower() not in STOP_WORDS and len(ident) >= 2:
+            if ident and ident.lower() not in STOP_WORDS and len(ident) >= 2 and not _is_file_path(ident):
                 identifiers.append(ident)
 
     for sym in re.findall(r"\b[A-Z][a-zA-Z0-9_]+\b", text):
-        if sym.lower() not in STOP_WORDS and len(sym) >= 3:
+        if sym.lower() not in STOP_WORDS and len(sym) >= 3 and not _is_file_path(sym):
             identifiers.append(sym)
 
     seen = set()
@@ -222,31 +261,26 @@ def _extract_explicit_imported_identifiers(obligation) -> list[str]:
 
 
 def _extract_primary_obligation_symbols(obligation) -> list[str]:
-    """Extract distinct identifiers, quoted tokens, paths, and hints that define the obligation."""
+    """Extract distinct identifiers and symbols that define the obligation, strictly excluding file paths."""
     symbols = []
     statement = obligation.statement
+    explicit_paths = set(_extract_explicit_paths(obligation))
 
     # 1. Backticked tokens
     for token in re.findall(r"`([^`]+)`", statement):
         clean = token.strip()
-        if clean and clean.lower() not in STOP_WORDS:
+        if clean and clean.lower() not in STOP_WORDS and clean not in explicit_paths and not _is_file_path(clean):
             symbols.append(clean)
 
     # 2. Quoted tokens
     for token in re.findall(r"['\"]([^'\"]+)['\"]", statement):
         clean = token.strip()
-        if clean and clean.lower() not in STOP_WORDS:
+        if clean and clean.lower() not in STOP_WORDS and clean not in explicit_paths and not _is_file_path(clean):
             symbols.append(clean)
 
-    # 3. Path references (e.g. '@/utils/arbitrumAgent', 'src/components/ChatInterface.tsx')
-    for path in re.findall(r"(?:@\/|[a-zA-Z0-9_-]+\/)[a-zA-Z0-9_./-]+", statement):
-        clean = path.strip().strip("'\"`")
-        if clean and clean.lower() not in STOP_WORDS:
-            symbols.append(clean)
-
-    # 4. Specific PascalCase, camelCase, snake_case, or UPPER_CASE identifiers
+    # 3. Specific PascalCase, camelCase, snake_case, or UPPER_CASE identifiers
     for word in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", statement):
-        if word.lower() in STOP_WORDS:
+        if word.lower() in STOP_WORDS or _is_file_path(word):
             continue
         if re.match(r"^[a-z]+[A-Z][A-Za-z0-9]*$", word):
             symbols.append(word)
@@ -259,21 +293,17 @@ def _extract_primary_obligation_symbols(obligation) -> list[str]:
         elif re.search(r"[0-9]", word) and len(word) >= 3:
             symbols.append(word)
 
-    # 5. Extract symbols from verification hints
+    # 4. Extract symbols from verification hints
     for hint in obligation.verification_hints:
         clean = hint.strip().strip("'\"`")
-        if not clean:
+        if not clean or _is_file_path(clean) or clean in explicit_paths:
             continue
         for token in re.findall(r"[`'\"]([^`'\"]+)[`'\"]", clean):
             t_clean = token.strip()
-            if t_clean and t_clean.lower() not in STOP_WORDS:
+            if t_clean and t_clean.lower() not in STOP_WORDS and not _is_file_path(t_clean):
                 symbols.append(t_clean)
-        for path in re.findall(r"(?:@\/|[a-zA-Z0-9_-]+\/)[a-zA-Z0-9_./-]+", clean):
-            p_clean = path.strip().strip("'\"`")
-            if p_clean and p_clean.lower() not in STOP_WORDS:
-                symbols.append(p_clean)
         for word in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", clean):
-            if word.lower() in STOP_WORDS:
+            if word.lower() in STOP_WORDS or _is_file_path(word):
                 continue
             if (
                 re.match(r"^[a-z]+[A-Z][A-Za-z0-9]*$", word)
@@ -283,7 +313,7 @@ def _extract_primary_obligation_symbols(obligation) -> list[str]:
                 or (re.search(r"[0-9]", word) and len(word) >= 3)
             ):
                 symbols.append(word)
-        if len(clean.split()) == 1 and clean.lower() not in STOP_WORDS and len(clean) >= 3:
+        if len(clean.split()) == 1 and clean.lower() not in STOP_WORDS and len(clean) >= 3 and not _is_file_path(clean):
             symbols.append(clean)
 
     # Deduplicate preserving order
@@ -297,9 +327,10 @@ def _extract_primary_obligation_symbols(obligation) -> list[str]:
 
 
 def extract_obligation_queries(obligation) -> list[tuple[str, ObligationStatus, str]]:
-    """Extract bounded, prioritized deterministic queries from an obligation statement and hints."""
+    """Extract bounded, prioritized deterministic queries from an obligation statement and hints, excluding file paths."""
     statement = obligation.statement
     statement_lower = statement.casefold()
+    explicit_paths = set(_extract_explicit_paths(obligation))
 
     queries: list[tuple[str, ObligationStatus, str]] = []
 
@@ -344,28 +375,34 @@ def extract_obligation_queries(obligation) -> list[tuple[str, ObligationStatus, 
 
     # 2. Extract primary symbols
     for sym in _extract_primary_obligation_symbols(obligation):
-        queries.append((sym, ObligationStatus.VERIFIED, f"Primary symbol {sym}"))
+        if not _is_file_path(sym) and sym not in explicit_paths:
+            queries.append((sym, ObligationStatus.VERIFIED, f"Primary symbol {sym}"))
 
     # 3. Extract exact quoted tokens or short tokens from verification hints
     for hint in obligation.verification_hints:
         clean_hint = hint.strip().strip("'\"`")
-        if not clean_hint:
+        if not clean_hint or _is_file_path(clean_hint) or clean_hint in explicit_paths:
             continue
         for token in re.findall(r"[`'\"]([^`'\"]+)[`'\"]", clean_hint):
             t_clean = token.strip()
-            if t_clean and t_clean.lower() not in STOP_WORDS:
+            if t_clean and t_clean.lower() not in STOP_WORDS and not _is_file_path(t_clean) and t_clean not in explicit_paths:
                 queries.append((t_clean, ObligationStatus.VERIFIED, f"Hint token `{t_clean}`"))
-        if len(clean_hint.split()) <= 2 and clean_hint.lower() not in STOP_WORDS:
+        if len(clean_hint.split()) <= 2 and clean_hint.lower() not in STOP_WORDS and not _is_file_path(clean_hint) and clean_hint not in explicit_paths:
             queries.append(
                 (clean_hint, ObligationStatus.VERIFIED, f"Verification hint {clean_hint}")
             )
+
+    # 4. Extract environment variable / config identifiers if present in statement
+    for env_match in re.findall(r"\b[A-Z][A-Z0-9_]{3,}\b", statement):
+        if env_match.lower() not in STOP_WORDS and not _is_file_path(env_match) and env_match not in explicit_paths:
+            queries.append((env_match, ObligationStatus.VERIFIED, f"Environment/config identifier {env_match}"))
 
     # Deduplicate while preserving priority order
     seen = set()
     deduped = []
     for q, status, desc in queries:
         q_norm = q.strip().casefold()
-        if q_norm and q_norm not in seen:
+        if q_norm and q_norm not in seen and not _is_file_path(q.strip()) and q.strip() not in explicit_paths:
             seen.add(q_norm)
             deduped.append((q.strip(), status, desc))
 
@@ -578,19 +615,44 @@ def check_evidence_sufficiency(obligation, path: str, snippet: str, matched_quer
                 return False
 
     # 4. Environment variable / config access check
-    if "process.env" in statement_lower or any(
-        env_token in statement_lower
-        for env_token in ["env.", "config.", "get_secret", "environ"]
-    ):
-        has_env_access = (
-            "process.env" in snippet_lower
-            or "environ" in snippet_lower
-            or "os.getenv" in snippet_lower
+    env_access_indicators = [
+        "import.meta.env",
+        "import.meta",
+        "process.env",
+        "os.getenv",
+        "os.environ",
+        "environ",
+        "system.getenv",
+        "env.",
+        "config.",
+        "get_secret",
+    ]
+    if any(ind in statement_lower for ind in env_access_indicators):
+        has_env_access = any(
+            token in snippet_lower
+            for token in [
+                "import.meta.env",
+                "import.meta",
+                "process.env",
+                "os.getenv",
+                "os.environ",
+                "environ",
+                "system.getenv",
+                "env(",
+                "env.",
+                "getenv",
+                "config",
+            ]
         )
         if not has_env_access:
             return False
 
-    # 5. Call / Invocation / Usage claims
+    # 5. Required uppercase / config / environment identifier checks
+    for ident in re.findall(r"\b[A-Z][A-Z0-9_]{3,}\b", obligation.statement):
+        if ident.lower() not in STOP_WORDS and not _is_file_path(ident) and ident not in snippet:
+            return False
+
+    # 6. Call / Invocation / Usage claims
     is_call_claim = any(
         kw in statement_lower
         for kw in [
@@ -834,14 +896,153 @@ class VerificationWorkflow:
 
         tools = RepositoryTools(self.runs, self.verification, run_id=run.id)
 
-        # Priority 1: Exact-Path-First Strategy
+        # Priority 0: Reuse already-read source evidence within same run & snapshot
+        try:
+            cursor_ev = self.verification.database.evidence.find(
+                {
+                    "run_id": run.id,
+                    "snapshot_id": run.snapshot_id,
+                    "evidence_type": EvidenceType.SOURCE_RANGE,
+                }
+            )
+            async for prev_ev in cursor_ev:
+                p = prev_ev.get("path")
+                if not p:
+                    continue
+                file_doc = await self.verification.database.repository_files.find_one(
+                    {"snapshot_id": run.snapshot_id, "path": p}
+                )
+                if not file_doc or file_doc.get("content_hash") != prev_ev.get("content_hash"):
+                    continue
+                lines = file_doc.get("text", "").splitlines()
+                l_start = max(1, prev_ev.get("line_start", 1))
+                l_end = min(len(lines), prev_ev.get("line_end", len(lines)))
+                snippet = "\n".join(lines[l_start - 1 : l_end])
+
+                if check_evidence_sufficiency(
+                    obligation, p, snippet, prev_ev.get("matched_query") or p
+                ):
+                    evidence = await EvidenceAuthority(self.verification).issue_source_range(
+                        snapshot_id=run.snapshot_id,
+                        run_id=run.id,
+                        obligation_id=obligation.id,
+                        matched_query=prev_ev.get("matched_query") or p,
+                        relationship="SUPPORTS",
+                        tool_run_id=prev_ev["source_tool_run_id"],
+                        path=p,
+                        line_start=l_start,
+                        line_end=l_end,
+                        summary=f"Reused verified source fact in {p}:{l_start}-{l_end}",
+                    )
+                    await EvidenceAuthority(self.verification).validate(evidence.id)
+                    obligation.evidence_ids.append(evidence.id)
+                    obligation.status = ObligationStatus.VERIFIED
+                    await self._event(
+                        run.id,
+                        "evidence_added",
+                        f"Reused existing snapshot evidence from {p}:{l_start}-{l_end}",
+                    )
+                    await self._event(
+                        run.id, "obligation_completed", "Obligation became VERIFIED"
+                    )
+                    return
+        except Exception:
+            pass
+
+        # Priority 1: Exact-Path-First Strategy & Snapshot Manifest Existence/Absence
         explicit_paths = _extract_explicit_paths(obligation)
+        snapshot = await self.runs.get_snapshot(run.snapshot_id) if hasattr(self.runs, "get_snapshot") else None
+        is_manifest_complete = bool(snapshot and snapshot.status == SnapshotStatus.READY)
+
         for target_path in explicit_paths:
             if ob_calls_used >= ob_budget or run.tool_call_count >= self.settings.verification_max_tool_calls:
                 break
             file_doc = await self.verification.database.repository_files.find_one(
                 {"snapshot_id": run.snapshot_id, "path": target_path}
             )
+
+            stmt_low = obligation.statement.casefold()
+            is_existence_claim = (
+                obligation.semantic_role == SemanticRole.EXISTING_DEPENDENCY
+                or "exists in" in stmt_low
+                or "exists." in stmt_low
+                or stmt_low.endswith("exists")
+                or "target existence" in stmt_low
+            )
+
+            if is_existence_claim:
+                try:
+                    res = await tools.check_path_membership(
+                        CheckPathMembershipInput(snapshot_id=run.snapshot_id, path=target_path)
+                    )
+                    run.tool_call_count += 1
+                    ob_calls_used += 1
+                    tool_doc = await self.verification.database.tool_runs.find_one(
+                        {"run_id": run.id, "tool_name": "check_path_membership"},
+                        sort=[("started_at", -1)],
+                    )
+                    if res["present"]:
+                        evidence = await EvidenceAuthority(self.verification).issue_path_membership(
+                            snapshot_id=run.snapshot_id,
+                            run_id=run.id,
+                            obligation_id=obligation.id,
+                            tool_run_id=tool_doc["id"] if tool_doc else "tool-check-path-membership",
+                            path=target_path,
+                            present=True,
+                            summary=f"Exact path '{target_path}' verified present in repository snapshot manifest",
+                        )
+                        await EvidenceAuthority(self.verification).validate(evidence.id)
+                        obligation.evidence_ids.append(evidence.id)
+                        obligation.status = ObligationStatus.VERIFIED
+                        await self._event(
+                            run.id, "tool_completed", f"Exact path '{target_path}' present in snapshot manifest"
+                        )
+                        await self._event(
+                            run.id, "evidence_added", f"Server-issued path membership evidence recorded: {evidence.id}"
+                        )
+                        await self._event(
+                            run.id, "obligation_completed", "Obligation became VERIFIED"
+                        )
+                        return
+                    else:
+                        if is_manifest_complete:
+                            evidence = await EvidenceAuthority(self.verification).issue_path_membership(
+                                snapshot_id=run.snapshot_id,
+                                run_id=run.id,
+                                obligation_id=obligation.id,
+                                tool_run_id=tool_doc["id"] if tool_doc else "tool-check-path-membership",
+                                path=target_path,
+                                present=False,
+                                relationship="CONTRADICTS",
+                                summary=f"Exact path '{target_path}' is absent from complete repository snapshot manifest",
+                            )
+                            await EvidenceAuthority(self.verification).validate(evidence.id)
+                            obligation.counter_evidence_ids.append(evidence.id)
+                            obligation.status = ObligationStatus.DISPROVED
+                            await self._event(
+                                run.id, "tool_completed", f"Exact path '{target_path}' absent from complete snapshot manifest"
+                            )
+                            await self._event(
+                                run.id, "evidence_added", f"Server-issued contradiction evidence recorded: {evidence.id}"
+                            )
+                            await self._event(
+                                run.id, "obligation_completed", "Obligation became DISPROVED"
+                            )
+                            return
+                        else:
+                            obligation.status = ObligationStatus.INCONCLUSIVE
+                            obligation.proposal_metadata["inconclusive_reason"] = (
+                                "Snapshot manifest is not complete"
+                            )
+                            await self._event(
+                                run.id,
+                                "obligation_completed",
+                                "Obligation became INCONCLUSIVE: Snapshot manifest incomplete",
+                            )
+                            return
+                except Exception:
+                    pass
+
             if not file_doc:
                 # Target path does not exist in snapshot
                 continue

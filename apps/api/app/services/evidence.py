@@ -57,6 +57,51 @@ class EvidenceAuthority:
             )
         )
 
+    async def issue_path_membership(
+        self,
+        *,
+        snapshot_id: str,
+        tool_run_id: str,
+        path: str,
+        present: bool,
+        summary: str,
+        run_id: str | None = None,
+        obligation_id: str | None = None,
+        relationship: str | None = None,
+    ) -> Evidence:
+        tool_run = await self.repository.get_tool_run(tool_run_id)
+        if (
+            not tool_run
+            or tool_run.status != ToolRunStatus.SUCCEEDED
+            or tool_run.snapshot_id != snapshot_id
+            or tool_run.tool_name not in {
+                "check_path_membership",
+                "read_file_range",
+                "search_code_lexical",
+                "find_symbol",
+                "list_files",
+            }
+        ):
+            raise ValueError("tool run is not authorized to issue path membership evidence for this snapshot")
+
+        snapshot = await self.repository.database.repository_snapshots.find_one({"id": snapshot_id})
+        root_hash = snapshot.get("root_content_hash") if snapshot else None
+
+        return await self.repository.create_evidence(
+            Evidence(
+                snapshot_id=snapshot_id,
+                run_id=run_id,
+                obligation_id=obligation_id,
+                source_tool_run_id=tool_run_id,
+                evidence_type=EvidenceType.SNAPSHOT_PATH_MEMBERSHIP,
+                path=path,
+                content_hash=root_hash,
+                matched_query=path,
+                relationship=relationship or ("SUPPORTS" if present else "CONTRADICTS"),
+                summary=summary,
+            )
+        )
+
     async def validate(self, evidence_id: str) -> Evidence:
         evidence = await self.repository.get_evidence(evidence_id)
         if not evidence:
@@ -68,6 +113,23 @@ class EvidenceAuthority:
             or tool_run.snapshot_id != evidence.snapshot_id
         ):
             raise ValueError("evidence provenance is invalid")
+
+        if evidence.evidence_type == EvidenceType.SNAPSHOT_PATH_MEMBERSHIP:
+            if tool_run.tool_name not in {
+                "check_path_membership",
+                "read_file_range",
+                "search_code_lexical",
+                "find_symbol",
+                "list_files",
+            }:
+                raise ValueError("tool cannot issue snapshot path membership evidence")
+            snapshot = await self.repository.database.repository_snapshots.find_one(
+                {"id": evidence.snapshot_id}
+            )
+            if not snapshot or snapshot.get("status") != "READY":
+                raise ValueError("snapshot is not ready for path membership validation")
+            return evidence
+
         if evidence.evidence_type != EvidenceType.SOURCE_RANGE or tool_run.tool_name not in {
             "read_file_range",
             "search_code_lexical",

@@ -309,24 +309,32 @@ Example plan statements:
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{ width: 22, height: 22, borderRadius: 6, background: '#FFF1EB', color: '#EA580C', fontWeight: 800, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: 11 }}>1</span>
                   <div>
-                    <strong style={{ color: '#0F172A', display: 'block' }}>Extract proof obligations</strong>
-                    <span>Candidate plan statements are parsed into testable claims across behavior, schema, and API contracts.</span>
+                    <strong style={{ color: '#0F172A', display: 'block' }}>Decompose plan semantics</strong>
+                    <span>Separate current-state assumptions, existing dependencies, proposed actions, constraints, and human decisions.</span>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{ width: 22, height: 22, borderRadius: 6, background: '#FFF1EB', color: '#EA580C', fontWeight: 800, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: 11 }}>2</span>
                   <div>
-                    <strong style={{ color: '#0F172A', display: 'block' }}>Gather deterministic evidence</strong>
-                    <span>Bounded deterministic repository tools inspect files, line ranges, symbols, and structured code evidence.</span>
+                    <strong style={{ color: '#0F172A', display: 'block' }}>Gather repository evidence</strong>
+                    <span>Use exact source inspection, indexed symbols, and lexical search inside the immutable snapshot. Model proposals are non-authoritative; deterministic software authorizes tools.</span>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{ width: 22, height: 22, borderRadius: 6, background: '#FFF1EB', color: '#EA580C', fontWeight: 800, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: 11 }}>3</span>
                   <div>
-                    <strong style={{ color: '#0F172A', display: 'block' }}>Server-authoritative Plan Gate</strong>
-                    <span>Produces an evidence-backed Plan Gate result and safely escalates claims that cannot be resolved from repository evidence.</span>
+                    <strong style={{ color: '#0F172A', display: 'block' }}>Compute deterministic Plan Gate</strong>
+                    <span>Obligation outcomes: <code>VERIFIED</code>, <code>DISPROVED</code>, <code>INCONCLUSIVE</code>, <code>HUMAN_REQUIRED</code>. Run gate: <code>COMPLETE</code>, <code>BLOCKED</code>, <code>INCONCLUSIVE</code>, <code>HUMAN_DECISION_REQUIRED</code>.</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <span style={{ width: 22, height: 22, borderRadius: 6, background: '#FFF1EB', color: '#EA580C', fontWeight: 800, display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: 11 }}>4</span>
+                  <div>
+                    <strong style={{ color: '#0F172A', display: 'block' }}>Produce Updated Implementation Plan</strong>
+                    <span>Return an evidence-grounded advisory plan that keeps, modifies, removes, adds, or marks steps unresolved.</span>
                   </div>
                 </div>
               </div>
