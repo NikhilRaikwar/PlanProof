@@ -74,18 +74,17 @@ class EvidenceAuthority:
             not tool_run
             or tool_run.status != ToolRunStatus.SUCCEEDED
             or tool_run.snapshot_id != snapshot_id
-            or tool_run.tool_name not in {
-                "check_path_membership",
-                "read_file_range",
-                "search_code_lexical",
-                "find_symbol",
-                "list_files",
-            }
+            or tool_run.tool_name != "check_path_membership"
         ):
-            raise ValueError("tool run is not authorized to issue path membership evidence for this snapshot")
+            raise ValueError(
+                "tool run is not authorized to issue path membership evidence for this snapshot"
+            )
 
         snapshot = await self.repository.database.repository_snapshots.find_one({"id": snapshot_id})
-        root_hash = snapshot.get("root_content_hash") if snapshot else None
+        if not snapshot or snapshot.get("status") != "READY":
+            raise ValueError("snapshot is not ready for path membership evidence")
+
+        manifest_hash = snapshot.get("manifest_hash") or snapshot.get("root_content_hash")
 
         return await self.repository.create_evidence(
             Evidence(
@@ -95,7 +94,7 @@ class EvidenceAuthority:
                 source_tool_run_id=tool_run_id,
                 evidence_type=EvidenceType.SNAPSHOT_PATH_MEMBERSHIP,
                 path=path,
-                content_hash=root_hash,
+                content_hash=manifest_hash,
                 matched_query=path,
                 relationship=relationship or ("SUPPORTS" if present else "CONTRADICTS"),
                 summary=summary,
@@ -114,20 +113,32 @@ class EvidenceAuthority:
         ):
             raise ValueError("evidence provenance is invalid")
 
+        if evidence.run_id and tool_run.run_id and evidence.run_id != tool_run.run_id:
+            raise ValueError("evidence run_id does not match tool run run_id")
+
         if evidence.evidence_type == EvidenceType.SNAPSHOT_PATH_MEMBERSHIP:
-            if tool_run.tool_name not in {
-                "check_path_membership",
-                "read_file_range",
-                "search_code_lexical",
-                "find_symbol",
-                "list_files",
-            }:
+            if tool_run.tool_name != "check_path_membership":
                 raise ValueError("tool cannot issue snapshot path membership evidence")
             snapshot = await self.repository.database.repository_snapshots.find_one(
                 {"id": evidence.snapshot_id}
             )
             if not snapshot or snapshot.get("status") != "READY":
                 raise ValueError("snapshot is not ready for path membership validation")
+
+            if tool_run.input_summary and tool_run.input_summary.get("path") != evidence.path:
+                raise ValueError("canonical path does not match tool input")
+
+            expected_hash = snapshot.get("manifest_hash") or snapshot.get("root_content_hash")
+            if evidence.content_hash != expected_hash:
+                raise ValueError(
+                    "snapshot manifest hash does not match persisted manifest authority"
+                )
+
+            if evidence.relationship == "CONTRADICTS" and not snapshot.get("manifest_complete"):
+                raise ValueError(
+                    "cannot validate negative path membership evidence without complete manifest"
+                )
+
             return evidence
 
         if evidence.evidence_type != EvidenceType.SOURCE_RANGE or tool_run.tool_name not in {
@@ -163,10 +174,25 @@ async def validate_symbol_exists(
 async def validate_file_exists(
     repository: VerificationRepository, snapshot_id: str, path: str
 ) -> ValidatorResult:
-    item = await repository.database.repository_files.find_one(
-        {"snapshot_id": snapshot_id, "path": path}
-    )
-    return ValidatorResult.SATISFIED if item else ValidatorResult.CONTRADICTED
+    manifest_col = getattr(repository.database, "snapshot_manifest", None)
+    if manifest_col is not None:
+        manifest_entry = await manifest_col.find_one({"snapshot_id": snapshot_id, "path": path})
+        if manifest_entry is not None:
+            return ValidatorResult.SATISFIED
+
+    repo_files_col = getattr(repository.database, "repository_files", None)
+    if repo_files_col is not None:
+        item = await repo_files_col.find_one({"snapshot_id": snapshot_id, "path": path})
+        if item is not None:
+            return ValidatorResult.SATISFIED
+
+    snapshots_col = getattr(repository.database, "repository_snapshots", None)
+    if snapshots_col is not None:
+        snapshot = await snapshots_col.find_one({"id": snapshot_id})
+        if snapshot and snapshot.get("manifest_complete"):
+            return ValidatorResult.CONTRADICTED
+
+    return ValidatorResult.INSUFFICIENT
 
 
 async def validate_source_contains(

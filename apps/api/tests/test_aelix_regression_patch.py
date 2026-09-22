@@ -98,7 +98,11 @@ class InMemoryCollection:
             if "$set" in update:
                 new_doc.update(update["$set"])
             await self.insert_one(new_doc)
-            return type("Result", (), {"modified_count": 0, "matched_count": 0, "upserted_id": new_doc.get("id")})()
+            return type(
+                "Result",
+                (),
+                {"modified_count": 0, "matched_count": 0, "upserted_id": new_doc.get("id")},
+            )()
         return type("Result", (), {"modified_count": 0, "matched_count": 0})()
 
     async def _filter(self, query: dict) -> list[dict]:
@@ -140,6 +144,7 @@ class InMemoryCollection:
 class InMemoryDatabase:
     def __init__(self):
         self.repository_files = InMemoryCollection()
+        self.snapshot_manifest = InMemoryCollection()
         self.snapshots = InMemoryCollection()
         self.repository_snapshots = InMemoryCollection()
         self.verification_runs = InMemoryCollection()
@@ -161,12 +166,20 @@ class InMemoryDatabase:
 def test_classify_target_intent_generic():
     assert classify_target_intent("Update src/foo.ts to use new auth") == TargetIntent.MUST_EXIST
     assert classify_target_intent("Modify cmd/server.go handler") == TargetIntent.MUST_EXIST
-    assert classify_target_intent("Replace AuthProvider with CustomProvider in app/main.py") == TargetIntent.MUST_EXIST
+    assert (
+        classify_target_intent("Replace AuthProvider with CustomProvider in app/main.py")
+        == TargetIntent.MUST_EXIST
+    )
     assert classify_target_intent("Delete lib/deprecated.rb") == TargetIntent.MUST_EXIST
     assert classify_target_intent("Create src/new_module.ts") == TargetIntent.CREATE_NEW
     assert classify_target_intent("Add a new endpoint in routes.py") == TargetIntent.CREATE_NEW
-    assert classify_target_intent("Create or update src/config.json") == TargetIntent.CREATE_OR_UPDATE
-    assert classify_target_intent("Create and then update src/config.json") == TargetIntent.CREATE_OR_UPDATE
+    assert (
+        classify_target_intent("Create or update src/config.json") == TargetIntent.CREATE_OR_UPDATE
+    )
+    assert (
+        classify_target_intent("Create and then update src/config.json")
+        == TargetIntent.CREATE_OR_UPDATE
+    )
     assert classify_target_intent("Do not update src/legacy.ts") == TargetIntent.UNKNOWN
 
 
@@ -282,6 +295,9 @@ async def test_evidence_reuse_and_manifest_absence():
         status=SnapshotStatus.READY,
         files_indexed=2,
         root_content_hash="roothash123",
+        manifest_complete=True,
+        manifest_entry_count=1,
+        manifest_hash="roothash123",
     )
     await run_repo.create_snapshot(snapshot)
 
@@ -295,14 +311,27 @@ async def test_evidence_reuse_and_manifest_absence():
         "};\n"
     )
     import hashlib
+
     app_hash = hashlib.sha256(app_text.encode()).hexdigest()
-    await test_db.repository_files.insert_one({
-        "snapshot_id": snapshot_id,
-        "path": "src/App.tsx",
-        "text": app_text,
-        "content_hash": app_hash,
-        "language": "typescript",
-    })
+    await test_db.repository_files.insert_one(
+        {
+            "snapshot_id": snapshot_id,
+            "path": "src/App.tsx",
+            "text": app_text,
+            "content_hash": app_hash,
+            "language": "typescript",
+        }
+    )
+    await test_db.snapshot_manifest.insert_one(
+        {
+            "snapshot_id": snapshot_id,
+            "path": "src/App.tsx",
+            "git_mode": "100644",
+            "object_type": "blob",
+            "object_sha": app_hash,
+            "path_kind": "regular_blob",
+        }
+    )
 
     # Obligation 1: imports PrivyProvider
     ob1 = ProofObligation(
@@ -389,3 +418,66 @@ async def test_evidence_reuse_and_manifest_absence():
 
     # Deterministic Gate MUST be BLOCKED because a prerequisite was disproved
     assert updated_run.status == VerificationRunStatus.BLOCKED
+
+
+def test_production_mongo_tls_insecure_rejected():
+    from pydantic import ValidationError
+
+    from app.core.config import Settings
+
+    # In development, mongo_tls_insecure can be True
+    dev_settings = Settings(
+        planproof_env="development",
+        mongo_tls_insecure=True,
+    )
+    assert dev_settings.mongo_tls_insecure is True
+
+    # In production, mongo_tls_insecure=True MUST be rejected
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            planproof_env="production",
+            mongodb_uri="mongodb://atlas.example.com:27017/planproof?ssl=true",
+            redis_url="redis://localhost:6379",
+            mongo_tls_insecure=True,
+        )
+    assert "mongo_tls_insecure cannot be True in production" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_fail_closed_path_membership_evidence_authority():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.domain.verification import ToolRun, ToolRunStatus
+    from app.services.evidence import EvidenceAuthority
+
+    tool_run = ToolRun(
+        id="tool-search-1",
+        snapshot_id="snap-1",
+        tool_name="search_code_lexical",
+        status=ToolRunStatus.SUCCEEDED,
+        input_hash="hash",
+        duration_ms=10,
+    )
+    repo = SimpleNamespace(
+        database=SimpleNamespace(
+            repository_snapshots=SimpleNamespace(
+                find_one=AsyncMock(
+                    return_value={"id": "snap-1", "status": "READY", "manifest_complete": True}
+                )
+            )
+        ),
+        get_tool_run=AsyncMock(return_value=tool_run),
+    )
+    authority = EvidenceAuthority(repo)
+
+    # search_code_lexical CANNOT issue path membership evidence
+    with pytest.raises(ValueError) as exc:
+        await authority.issue_path_membership(
+            snapshot_id="snap-1",
+            tool_run_id=tool_run.id,
+            path="src/missing.ts",
+            present=False,
+            summary="absence",
+        )
+    assert "not authorized to issue path membership evidence" in str(exc.value)

@@ -192,9 +192,7 @@ _PATH_EXTENSIONS_SET = {
     ".sh",
 }
 
-_PATH_REGEX = (
-    r"(?:@\/|[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:tsx?|jsx?|py|json|yaml|yml|toml|sql|md|css|env|go|rs|rb|java|c|cpp|h|hpp|sh)"
-)
+_PATH_REGEX = r"(?:@\/|[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:tsx?|jsx?|py|json|yaml|yml|toml|sql|md|css|env|go|rs|rb|java|c|cpp|h|hpp|sh)"
 
 
 def _is_file_path(token: str) -> bool:
@@ -218,7 +216,11 @@ def _extract_explicit_paths(obligation) -> list[str]:
             clean = clean[2:]
         if clean.startswith("./"):
             clean = clean[2:]
-        if clean in {"import.meta.env", "process.env"} or clean.startswith("import.meta") or clean.startswith("process.env"):
+        if (
+            clean in {"import.meta.env", "process.env"}
+            or clean.startswith("import.meta")
+            or clean.startswith("process.env")
+        ):
             continue
         if clean and not clean.startswith("/") and ".." not in clean and "\x00" not in clean:
             paths.append(clean)
@@ -244,7 +246,12 @@ def _extract_explicit_imported_identifiers(obligation) -> list[str]:
         cleaned_match = match.replace("{", "").replace("}", "")
         for item in cleaned_match.split(","):
             ident = item.strip()
-            if ident and ident.lower() not in STOP_WORDS and len(ident) >= 2 and not _is_file_path(ident):
+            if (
+                ident
+                and ident.lower() not in STOP_WORDS
+                and len(ident) >= 2
+                and not _is_file_path(ident)
+            ):
                 identifiers.append(ident)
 
     for sym in re.findall(r"\b[A-Z][a-zA-Z0-9_]+\b", text):
@@ -269,13 +276,23 @@ def _extract_primary_obligation_symbols(obligation) -> list[str]:
     # 1. Backticked tokens
     for token in re.findall(r"`([^`]+)`", statement):
         clean = token.strip()
-        if clean and clean.lower() not in STOP_WORDS and clean not in explicit_paths and not _is_file_path(clean):
+        if (
+            clean
+            and clean.lower() not in STOP_WORDS
+            and clean not in explicit_paths
+            and not _is_file_path(clean)
+        ):
             symbols.append(clean)
 
     # 2. Quoted tokens
     for token in re.findall(r"['\"]([^'\"]+)['\"]", statement):
         clean = token.strip()
-        if clean and clean.lower() not in STOP_WORDS and clean not in explicit_paths and not _is_file_path(clean):
+        if (
+            clean
+            and clean.lower() not in STOP_WORDS
+            and clean not in explicit_paths
+            and not _is_file_path(clean)
+        ):
             symbols.append(clean)
 
     # 3. Specific PascalCase, camelCase, snake_case, or UPPER_CASE identifiers
@@ -313,7 +330,12 @@ def _extract_primary_obligation_symbols(obligation) -> list[str]:
                 or (re.search(r"[0-9]", word) and len(word) >= 3)
             ):
                 symbols.append(word)
-        if len(clean.split()) == 1 and clean.lower() not in STOP_WORDS and len(clean) >= 3 and not _is_file_path(clean):
+        if (
+            len(clean.split()) == 1
+            and clean.lower() not in STOP_WORDS
+            and len(clean) >= 3
+            and not _is_file_path(clean)
+        ):
             symbols.append(clean)
 
     # Deduplicate preserving order
@@ -385,24 +407,45 @@ def extract_obligation_queries(obligation) -> list[tuple[str, ObligationStatus, 
             continue
         for token in re.findall(r"[`'\"]([^`'\"]+)[`'\"]", clean_hint):
             t_clean = token.strip()
-            if t_clean and t_clean.lower() not in STOP_WORDS and not _is_file_path(t_clean) and t_clean not in explicit_paths:
+            if (
+                t_clean
+                and t_clean.lower() not in STOP_WORDS
+                and not _is_file_path(t_clean)
+                and t_clean not in explicit_paths
+            ):
                 queries.append((t_clean, ObligationStatus.VERIFIED, f"Hint token `{t_clean}`"))
-        if len(clean_hint.split()) <= 2 and clean_hint.lower() not in STOP_WORDS and not _is_file_path(clean_hint) and clean_hint not in explicit_paths:
+        if (
+            len(clean_hint.split()) <= 2
+            and clean_hint.lower() not in STOP_WORDS
+            and not _is_file_path(clean_hint)
+            and clean_hint not in explicit_paths
+        ):
             queries.append(
                 (clean_hint, ObligationStatus.VERIFIED, f"Verification hint {clean_hint}")
             )
 
     # 4. Extract environment variable / config identifiers if present in statement
     for env_match in re.findall(r"\b[A-Z][A-Z0-9_]{3,}\b", statement):
-        if env_match.lower() not in STOP_WORDS and not _is_file_path(env_match) and env_match not in explicit_paths:
-            queries.append((env_match, ObligationStatus.VERIFIED, f"Environment/config identifier {env_match}"))
+        if (
+            env_match.lower() not in STOP_WORDS
+            and not _is_file_path(env_match)
+            and env_match not in explicit_paths
+        ):
+            queries.append(
+                (env_match, ObligationStatus.VERIFIED, f"Environment/config identifier {env_match}")
+            )
 
     # Deduplicate while preserving priority order
     seen = set()
     deduped = []
     for q, status, desc in queries:
         q_norm = q.strip().casefold()
-        if q_norm and q_norm not in seen and not _is_file_path(q.strip()) and q.strip() not in explicit_paths:
+        if (
+            q_norm
+            and q_norm not in seen
+            and not _is_file_path(q.strip())
+            and q.strip() not in explicit_paths
+        ):
             seen.add(q_norm)
             deduped.append((q.strip(), status, desc))
 
@@ -531,8 +574,7 @@ def check_evidence_relevance(obligation, path: str, snippet: str, matched_query:
     explicit_paths = _extract_explicit_paths(obligation)
     if explicit_paths:
         path_matches = any(
-            p.casefold() == path_lower or path_lower.endswith(p.casefold())
-            for p in explicit_paths
+            p.casefold() == path_lower or path_lower.endswith(p.casefold()) for p in explicit_paths
         )
         if not path_matches:
             return False
@@ -591,15 +633,15 @@ def check_evidence_sufficiency(obligation, path: str, snippet: str, matched_quer
     explicit_paths = _extract_explicit_paths(obligation)
     if explicit_paths:
         path_matches = any(
-            p.casefold() == path_lower or path_lower.endswith(p.casefold())
-            for p in explicit_paths
+            p.casefold() == path_lower or path_lower.endswith(p.casefold()) for p in explicit_paths
         )
         if not path_matches:
             return False
 
     # 3. Exact imported identifier check
     is_import_claim = any(
-        kw in statement_lower for kw in ["import ", "imports ", "imported", "imported into", "importing"]
+        kw in statement_lower
+        for kw in ["import ", "imports ", "imported", "imported into", "importing"]
     )
     if is_import_claim:
         has_import_statement = "import " in snippet_lower or "require(" in snippet_lower
@@ -770,9 +812,7 @@ class VerificationWorkflow:
 
         ordered_obligations = sorted(
             obligations,
-            key=lambda item: (
-                classify_obligation_routing(item) == "HUMAN_AUTHORITY"
-            ),
+            key=lambda item: classify_obligation_routing(item) == "HUMAN_AUTHORITY",
         )
 
         for obligation in ordered_obligations:
@@ -867,9 +907,7 @@ class VerificationWorkflow:
 
     async def _investigate(self, run, obligation, ordered_obligations: list) -> None:
         """A bounded, deterministic repository investigation with exact-path priority and fair budgeting."""
-        remaining_budget = max(
-            0, self.settings.verification_max_tool_calls - run.tool_call_count
-        )
+        remaining_budget = max(0, self.settings.verification_max_tool_calls - run.tool_call_count)
         if remaining_budget <= 0:
             obligation.status = ObligationStatus.INCONCLUSIVE
             obligation.proposal_metadata["inconclusive_reason"] = (
@@ -942,20 +980,27 @@ class VerificationWorkflow:
                         "evidence_added",
                         f"Reused existing snapshot evidence from {p}:{l_start}-{l_end}",
                     )
-                    await self._event(
-                        run.id, "obligation_completed", "Obligation became VERIFIED"
-                    )
+                    await self._event(run.id, "obligation_completed", "Obligation became VERIFIED")
                     return
         except Exception:
             pass
 
         # Priority 1: Exact-Path-First Strategy & Snapshot Manifest Existence/Absence
         explicit_paths = _extract_explicit_paths(obligation)
-        snapshot = await self.runs.get_snapshot(run.snapshot_id) if hasattr(self.runs, "get_snapshot") else None
-        is_manifest_complete = bool(snapshot and snapshot.status == SnapshotStatus.READY)
+        snapshot = (
+            await self.runs.get_snapshot(run.snapshot_id)
+            if hasattr(self.runs, "get_snapshot")
+            else None
+        )
+        is_manifest_complete = bool(
+            snapshot and snapshot.status == SnapshotStatus.READY and snapshot.manifest_complete
+        )
 
         for target_path in explicit_paths:
-            if ob_calls_used >= ob_budget or run.tool_call_count >= self.settings.verification_max_tool_calls:
+            if (
+                ob_calls_used >= ob_budget
+                or run.tool_call_count >= self.settings.verification_max_tool_calls
+            ):
                 break
             file_doc = await self.verification.database.repository_files.find_one(
                 {"snapshot_id": run.snapshot_id, "path": target_path}
@@ -981,12 +1026,14 @@ class VerificationWorkflow:
                         {"run_id": run.id, "tool_name": "check_path_membership"},
                         sort=[("started_at", -1)],
                     )
-                    if res["present"]:
+                    if res.get("present") is True:
                         evidence = await EvidenceAuthority(self.verification).issue_path_membership(
                             snapshot_id=run.snapshot_id,
                             run_id=run.id,
                             obligation_id=obligation.id,
-                            tool_run_id=tool_doc["id"] if tool_doc else "tool-check-path-membership",
+                            tool_run_id=tool_doc["id"]
+                            if tool_doc
+                            else "tool-check-path-membership",
                             path=target_path,
                             present=True,
                             summary=f"Exact path '{target_path}' verified present in repository snapshot manifest",
@@ -995,51 +1042,65 @@ class VerificationWorkflow:
                         obligation.evidence_ids.append(evidence.id)
                         obligation.status = ObligationStatus.VERIFIED
                         await self._event(
-                            run.id, "tool_completed", f"Exact path '{target_path}' present in snapshot manifest"
+                            run.id,
+                            "tool_completed",
+                            f"Exact path '{target_path}' present in snapshot manifest",
                         )
                         await self._event(
-                            run.id, "evidence_added", f"Server-issued path membership evidence recorded: {evidence.id}"
+                            run.id,
+                            "evidence_added",
+                            f"Server-issued path membership evidence recorded: {evidence.id}",
                         )
                         await self._event(
                             run.id, "obligation_completed", "Obligation became VERIFIED"
                         )
                         return
+                    elif (
+                        res.get("present") is False
+                        and is_manifest_complete
+                        and not res.get("is_inconclusive")
+                    ):
+                        evidence = await EvidenceAuthority(self.verification).issue_path_membership(
+                            snapshot_id=run.snapshot_id,
+                            run_id=run.id,
+                            obligation_id=obligation.id,
+                            tool_run_id=tool_doc["id"]
+                            if tool_doc
+                            else "tool-check-path-membership",
+                            path=target_path,
+                            present=False,
+                            relationship="CONTRADICTS",
+                            summary=f"Exact path '{target_path}' is absent from complete repository snapshot manifest",
+                        )
+                        await EvidenceAuthority(self.verification).validate(evidence.id)
+                        obligation.counter_evidence_ids.append(evidence.id)
+                        obligation.status = ObligationStatus.DISPROVED
+                        await self._event(
+                            run.id,
+                            "tool_completed",
+                            f"Exact path '{target_path}' absent from complete snapshot manifest",
+                        )
+                        await self._event(
+                            run.id,
+                            "evidence_added",
+                            f"Server-issued contradiction evidence recorded: {evidence.id}",
+                        )
+                        await self._event(
+                            run.id, "obligation_completed", "Obligation became DISPROVED"
+                        )
+                        return
                     else:
-                        if is_manifest_complete:
-                            evidence = await EvidenceAuthority(self.verification).issue_path_membership(
-                                snapshot_id=run.snapshot_id,
-                                run_id=run.id,
-                                obligation_id=obligation.id,
-                                tool_run_id=tool_doc["id"] if tool_doc else "tool-check-path-membership",
-                                path=target_path,
-                                present=False,
-                                relationship="CONTRADICTS",
-                                summary=f"Exact path '{target_path}' is absent from complete repository snapshot manifest",
-                            )
-                            await EvidenceAuthority(self.verification).validate(evidence.id)
-                            obligation.counter_evidence_ids.append(evidence.id)
-                            obligation.status = ObligationStatus.DISPROVED
-                            await self._event(
-                                run.id, "tool_completed", f"Exact path '{target_path}' absent from complete snapshot manifest"
-                            )
-                            await self._event(
-                                run.id, "evidence_added", f"Server-issued contradiction evidence recorded: {evidence.id}"
-                            )
-                            await self._event(
-                                run.id, "obligation_completed", "Obligation became DISPROVED"
-                            )
-                            return
-                        else:
-                            obligation.status = ObligationStatus.INCONCLUSIVE
-                            obligation.proposal_metadata["inconclusive_reason"] = (
-                                "Snapshot manifest is not complete"
-                            )
-                            await self._event(
-                                run.id,
-                                "obligation_completed",
-                                "Obligation became INCONCLUSIVE: Snapshot manifest incomplete",
-                            )
-                            return
+                        inconclusive_msg = (
+                            res.get("inconclusive_reason") or "Snapshot manifest is not complete"
+                        )
+                        obligation.status = ObligationStatus.INCONCLUSIVE
+                        obligation.proposal_metadata["inconclusive_reason"] = inconclusive_msg
+                        await self._event(
+                            run.id,
+                            "obligation_completed",
+                            f"Obligation became INCONCLUSIVE: {inconclusive_msg}",
+                        )
+                        return
                 except Exception:
                     pass
 
@@ -1055,9 +1116,7 @@ class VerificationWorkflow:
             sample_snippet = "\n".join(lines[:200])
 
             # Check if this exact file satisfies the proposition
-            if check_evidence_sufficiency(
-                obligation, target_path, sample_snippet, target_path
-            ):
+            if check_evidence_sufficiency(obligation, target_path, sample_snippet, target_path):
                 try:
                     await tools.read_file_range(
                         ReadFileRangeInput(
@@ -1098,9 +1157,7 @@ class VerificationWorkflow:
                         "evidence_added",
                         f"Server-issued exact-path evidence recorded: {evidence.id}",
                     )
-                    await self._event(
-                        run.id, "obligation_completed", "Obligation became VERIFIED"
-                    )
+                    await self._event(run.id, "obligation_completed", "Obligation became VERIFIED")
                     return
                 except Exception:
                     pass
@@ -1109,7 +1166,10 @@ class VerificationWorkflow:
         if obligation.category == ObligationCategory.SYMBOL:
             symbol_candidates = _extract_primary_obligation_symbols(obligation)
             for sym in symbol_candidates[:2]:
-                if ob_calls_used >= ob_budget or run.tool_call_count >= self.settings.verification_max_tool_calls:
+                if (
+                    ob_calls_used >= ob_budget
+                    or run.tool_call_count >= self.settings.verification_max_tool_calls
+                ):
                     break
                 try:
                     await self._event(run.id, "tool_started", f"Searching symbols for '{sym}'")
@@ -1179,7 +1239,10 @@ class VerificationWorkflow:
         # Priority 3: Bounded Lexical Searches
         queries = extract_obligation_queries(obligation)
         for query, terminal, desc in queries:
-            if ob_calls_used >= ob_budget or run.tool_call_count >= self.settings.verification_max_tool_calls:
+            if (
+                ob_calls_used >= ob_budget
+                or run.tool_call_count >= self.settings.verification_max_tool_calls
+            ):
                 break
             await self._event(
                 run.id, "tool_started", f"Running bounded lexical search for '{query}'"

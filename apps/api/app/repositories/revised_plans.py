@@ -28,7 +28,5 @@ class RevisedPlansRepository:
         return RevisedPlan.model_validate(doc) if doc else None
 
     async def list_for_run(self, run_id: str) -> list[RevisedPlan]:
-        cursor = self._database.revised_plans.find({"run_id": run_id}).sort(
-            "revision_version", 1
-        )
+        cursor = self._database.revised_plans.find({"run_id": run_id}).sort("revision_version", 1)
         return [RevisedPlan.model_validate(doc) async for doc in cursor]

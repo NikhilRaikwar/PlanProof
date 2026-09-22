@@ -34,6 +34,23 @@ class VerificationRunStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class PathKind(StrEnum):
+    REGULAR_BLOB = "regular_blob"
+    SYMLINK = "symlink"
+    SUBMODULE_GITLINK = "submodule_gitlink"
+
+
+class SnapshotManifestEntry(BaseModel):
+    id: str = Field(default_factory=new_id)
+    snapshot_id: str
+    path: str
+    git_mode: str
+    object_type: str
+    object_sha: str
+    path_kind: PathKind = PathKind.REGULAR_BLOB
+    created_at: datetime = Field(default_factory=now_utc)
+
+
 class RepositorySnapshot(BaseModel):
     id: str = Field(default_factory=new_id)
     project_id: str
@@ -52,6 +69,9 @@ class RepositorySnapshot(BaseModel):
     ignored_files: int = 0
     supported_languages: list[str] = Field(default_factory=list)
     failure_category: str | None = None
+    manifest_complete: bool = False
+    manifest_entry_count: int = 0
+    manifest_hash: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
 
@@ -90,9 +110,7 @@ def normalize_candidate_plan_steps(candidate_plan: str) -> list[OriginalPlanStep
 
     if current_text_parts:
         steps.append(
-            OriginalPlanStep(
-                id=f"step-{order}", order=order, text=" ".join(current_text_parts)
-            )
+            OriginalPlanStep(id=f"step-{order}", order=order, text=" ".join(current_text_parts))
         )
 
     # Fallback if no steps parsed

@@ -212,9 +212,7 @@ class PlanRevisionService:
         }
 
         # 2. Fetch snapshot file list for target file validation
-        cursor = self.database.repository_files.find(
-            {"snapshot_id": snapshot_id}, {"path": 1}
-        )
+        cursor = self.database.repository_files.find({"snapshot_id": snapshot_id}, {"path": 1})
         snapshot_files = {doc["path"] async for doc in cursor}
 
         # 3. Collect all snapshot-grounded symbols
@@ -404,16 +402,15 @@ class PlanRevisionService:
                             eid for eid in raw_change.evidence_ids if eid in valid_fact_evidence_ids
                         ]
                         valid_h_ids = [
-                            hid
-                            for hid in raw_change.human_decision_ids
-                            if hid in valid_human_ids
+                            hid for hid in raw_change.human_decision_ids if hid in valid_human_ids
                         ]
 
                         rationale = raw_change.rationale
 
                         # Invariant 1: Factual KEEP/MODIFY/REMOVE without basis facts or human decisions must be UNRESOLVED
                         if (
-                            ctype in {PlanChangeType.KEEP, PlanChangeType.MODIFY, PlanChangeType.REMOVE}
+                            ctype
+                            in {PlanChangeType.KEEP, PlanChangeType.MODIFY, PlanChangeType.REMOVE}
                             and not valid_fact_ids
                             and not valid_h_ids
                         ):
@@ -461,9 +458,7 @@ class PlanRevisionService:
                         except ValueError:
                             stype = PlanChangeType.MODIFY
 
-                        valid_fact_ids = [
-                            fid for fid in raw_step.basis_fact_ids if fid in fact_map
-                        ]
+                        valid_fact_ids = [fid for fid in raw_step.basis_fact_ids if fid in fact_map]
                         valid_ev_ids = [
                             eid
                             for eid in raw_step.supporting_evidence_ids

@@ -101,6 +101,10 @@ async def test_deterministic_validators_are_typed() -> None:
     repo = SimpleNamespace(
         database=SimpleNamespace(
             repository_files=OneCollection({"snapshot_id": "s", "path": "a.py"}),
+            snapshot_manifest=OneCollection({"snapshot_id": "s", "path": "a.py"}),
+            repository_snapshots=OneCollection(
+                {"id": "s", "manifest_complete": True, "status": "READY"}
+            ),
             code_symbols=OneCollection({"snapshot_id": "s", "qualified_name": "A.method"}),
         )
     )
@@ -237,4 +241,3 @@ async def test_find_symbol_evidence_authority_issuance_and_validation() -> None:
             line_end=3,
             summary="should fail",
         )
-

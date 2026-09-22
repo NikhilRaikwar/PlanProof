@@ -23,12 +23,11 @@ class MongoManager:
     async def connect(self) -> None:
         if not self.is_configured or self._client is not None:
             return
-        uri_str = self._settings.mongodb_uri.get_secret_value()
         extra_kwargs: dict[str, Any] = {}
-        if "ssl=true" in uri_str.lower() or "tls=true" in uri_str.lower() or "+srv" in uri_str.lower():
+        if self._settings.mongo_tls_insecure and self._settings.planproof_env != "production":
             extra_kwargs["tlsInsecure"] = True
         self._client = AsyncMongoClient(
-            uri_str,
+            self._settings.mongodb_uri.get_secret_value(),
             appname="planproof-api",
             serverSelectionTimeoutMS=self._settings.mongo_server_selection_timeout_ms,
             connectTimeoutMS=self._settings.mongo_server_selection_timeout_ms,

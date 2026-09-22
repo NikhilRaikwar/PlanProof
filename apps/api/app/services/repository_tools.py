@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 
 from pydantic import BaseModel, Field
 
-from app.domain.runs import SnapshotStatus
+from app.domain.runs import PathKind, SnapshotStatus
 from app.domain.verification import ToolRun, ToolRunStatus
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
@@ -161,18 +161,55 @@ class RepositoryTools:
         if not snapshot or snapshot.status != SnapshotStatus.READY:
             raise ValueError("snapshot is not READY")
 
-        item = await self.database.repository_files.find_one(
-            {"snapshot_id": data.snapshot_id, "path": path}
-        )
-        present = item is not None
+        manifest_entry = await self.runs.get_manifest_entry(data.snapshot_id, path)
+        if manifest_entry is not None:
+            result = {
+                "path": path,
+                "present": True,
+                "snapshot_id": data.snapshot_id,
+                "path_kind": manifest_entry.path_kind.value,
+                "object_sha": manifest_entry.object_sha,
+                "git_mode": manifest_entry.git_mode,
+                "manifest_complete": bool(snapshot.manifest_complete),
+                "is_submodule": manifest_entry.path_kind == PathKind.SUBMODULE_GITLINK,
+                "is_inconclusive": False,
+            }
+            await self._audit("check_path_membership", data, 1)
+            return result
+
+        submodule_ancestor = await self.runs.find_submodule_ancestor(data.snapshot_id, path)
+        if submodule_ancestor is not None:
+            result = {
+                "path": path,
+                "present": None,
+                "snapshot_id": data.snapshot_id,
+                "manifest_complete": bool(snapshot.manifest_complete),
+                "is_inconclusive": True,
+                "inconclusive_reason": f"Path is under submodule gitlink '{submodule_ancestor.path}'",
+            }
+            await self._audit("check_path_membership", data, 0)
+            return result
+
+        if not snapshot.manifest_complete:
+            result = {
+                "path": path,
+                "present": None,
+                "snapshot_id": data.snapshot_id,
+                "manifest_complete": False,
+                "is_inconclusive": True,
+                "inconclusive_reason": "Snapshot manifest is not marked complete",
+            }
+            await self._audit("check_path_membership", data, 0)
+            return result
+
         result = {
             "path": path,
-            "present": present,
+            "present": False,
             "snapshot_id": data.snapshot_id,
-            "content_hash": item["content_hash"] if item else None,
             "manifest_complete": True,
+            "is_inconclusive": False,
         }
-        await self._audit("check_path_membership", data, 1 if present else 0)
+        await self._audit("check_path_membership", data, 0)
         return result
 
     async def find_references(self, data: FindSymbolInput) -> dict:
@@ -206,9 +243,7 @@ class RepositoryTools:
         if hasattr(data, "name") and data.name:
             safe_summary["name"] = data.name
         if hasattr(data, "start_line") and hasattr(data, "end_line"):
-            safe_summary["line_range"] = (
-                f"{data.start_line}:{data.end_line}"
-            )
+            safe_summary["line_range"] = f"{data.start_line}:{data.end_line}"
         if hasattr(data, "limit"):
             safe_summary["limit"] = data.limit
 

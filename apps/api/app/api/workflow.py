@@ -585,4 +585,3 @@ async def list_revised_plans(
     session = await get_optional_session(mongo, settings, planproof_session)
     await _get_authorized_run(run_id, mongo, session)
     return await RevisedPlansRepository(mongo).list_for_run(run_id)
-

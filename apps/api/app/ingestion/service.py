@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pymongo.errors import DuplicateKeyError
 
-from app.domain.runs import SnapshotStatus
+from app.domain.runs import PathKind, SnapshotManifestEntry, SnapshotStatus
 from app.ingestion.parsers import ExtractedSymbol, extract_jsts_symbols, extract_python_symbols
 from app.ingestion.sources import (
     GitHubAppSource,
@@ -96,7 +96,13 @@ class SnapshotIngestionService:
                 await self.records.update_snapshot(snapshot)
                 raise RuntimeError("immutable snapshot conflict") from error
             files, root_hash, ignored_files = self._inventory(repository_root)
+            manifest_entries, manifest_hash = self._inventory_manifest(
+                repository_root, snapshot.id, is_git=not isinstance(source, SeededFixtureSource)
+            )
             snapshot.root_content_hash = root_hash
+            snapshot.manifest_complete = True
+            snapshot.manifest_entry_count = len(manifest_entries)
+            snapshot.manifest_hash = manifest_hash
             snapshot.files_discovered = len(files)
             snapshot.files_indexed = len(files)
             snapshot.ignored_files = ignored_files
@@ -107,6 +113,7 @@ class SnapshotIngestionService:
             snapshot.status = SnapshotStatus.INDEXING
             await self.records.update_snapshot(snapshot)
             await self.records.replace_index(snapshot.id, files, symbols)
+            await self.records.replace_manifest(snapshot.id, manifest_entries)
             snapshot.files_indexed = len(files)
             snapshot.symbols_indexed = len(symbols)
             snapshot.status = SnapshotStatus.READY
@@ -212,3 +219,80 @@ class SnapshotIngestionService:
     @staticmethod
     def _tree_bytes(root: Path) -> bytes:
         return b"".join(path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file())
+
+    def _inventory_manifest(
+        self, root: Path, snapshot_id: str, is_git: bool
+    ) -> tuple[list[SnapshotManifestEntry], str]:
+        entries: list[SnapshotManifestEntry] = []
+        if is_git:
+            res = subprocess.run(
+                ["git", "-C", str(root), "ls-tree", "-r", "-z", "HEAD"],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            raw_output = res.stdout
+            records = raw_output.split(b"\0")
+            for record in records:
+                if not record:
+                    continue
+                tab_index = record.find(b"\t")
+                if tab_index == -1:
+                    continue
+                meta = record[:tab_index].decode("utf-8", errors="replace")
+                path_str = record[tab_index + 1 :].decode("utf-8", errors="replace")
+                meta_parts = meta.split()
+                if len(meta_parts) != 3:
+                    continue
+                git_mode, object_type, object_sha = meta_parts
+                if git_mode == "160000" or object_type == "commit":
+                    kind = PathKind.SUBMODULE_GITLINK
+                elif git_mode.startswith("12"):
+                    kind = PathKind.SYMLINK
+                else:
+                    kind = PathKind.REGULAR_BLOB
+                entries.append(
+                    SnapshotManifestEntry(
+                        snapshot_id=snapshot_id,
+                        path=path_str,
+                        git_mode=git_mode,
+                        object_type=object_type,
+                        object_sha=object_sha,
+                        path_kind=kind,
+                    )
+                )
+        else:
+            for path in sorted(root.rglob("*")):
+                if path.is_symlink():
+                    rel = path.relative_to(root).as_posix()
+                    entries.append(
+                        SnapshotManifestEntry(
+                            snapshot_id=snapshot_id,
+                            path=rel,
+                            git_mode="120000",
+                            object_type="blob",
+                            object_sha=hashlib.sha256(str(path.readlink()).encode()).hexdigest(),
+                            path_kind=PathKind.SYMLINK,
+                        )
+                    )
+                elif path.is_file():
+                    rel = path.relative_to(root).as_posix()
+                    raw = path.read_bytes()
+                    entries.append(
+                        SnapshotManifestEntry(
+                            snapshot_id=snapshot_id,
+                            path=rel,
+                            git_mode="100644",
+                            object_type="blob",
+                            object_sha=hashlib.sha256(raw).hexdigest(),
+                            path_kind=PathKind.REGULAR_BLOB,
+                        )
+                    )
+
+        entries.sort(key=lambda e: e.path)
+        manifest_hash = hashlib.sha256(
+            "".join(
+                f"{e.git_mode} {e.object_type} {e.object_sha}\t{e.path}\n" for e in entries
+            ).encode("utf-8")
+        ).hexdigest()
+        return entries, manifest_hash

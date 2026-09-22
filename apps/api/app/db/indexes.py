@@ -31,6 +31,9 @@ INDEXES: dict[str, list[IndexModel]] = {
     "repository_files": [
         IndexModel([("snapshot_id", ASCENDING), ("path", ASCENDING)], unique=True),
     ],
+    "snapshot_manifest": [
+        IndexModel([("snapshot_id", ASCENDING), ("path", ASCENDING)], unique=True),
+    ],
     "code_symbols": [IndexModel([("snapshot_id", ASCENDING), ("qualified_name", ASCENDING)])],
     "code_chunks": [
         IndexModel([("snapshot_id", ASCENDING), ("path", ASCENDING), ("symbol", ASCENDING)]),

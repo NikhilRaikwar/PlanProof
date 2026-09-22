@@ -26,7 +26,11 @@ def _extract_canonical_paths_from_text(text: str) -> list[str]:
             raw = raw[2:]
         if raw.startswith("./"):
             raw = raw[2:]
-        if raw in {"import.meta.env", "process.env"} or raw.startswith("import.meta") or raw.startswith("process.env"):
+        if (
+            raw in {"import.meta.env", "process.env"}
+            or raw.startswith("import.meta")
+            or raw.startswith("process.env")
+        ):
             continue
         if raw and not raw.startswith("/") and ".." not in raw and "\x00" not in raw:
             paths.append(raw)

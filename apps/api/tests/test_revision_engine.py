@@ -172,29 +172,39 @@ class MockCollection:
 class MockVerificationRepo:
     def __init__(self) -> None:
         class MockDB:
-            evidence = MockCollection([
-                {
-                    "id": "ev-1",
-                    "path": "app/providers.tsx",
-                    "matched_query": "PrivyProvider",
-                },
-                {
-                    "id": "ev-2",
-                    "path": "app/dashboard/page.tsx",
-                    "matched_query": "usePrivy",
-                },
-            ])
+            evidence = MockCollection(
+                [
+                    {
+                        "id": "ev-1",
+                        "path": "app/providers.tsx",
+                        "matched_query": "PrivyProvider",
+                    },
+                    {
+                        "id": "ev-2",
+                        "path": "app/dashboard/page.tsx",
+                        "matched_query": "usePrivy",
+                    },
+                ]
+            )
             human_questions = MockCollection([])
             authorized_facts = MockCollection([])
-            repository_files = MockCollection([
-                {"snapshot_id": "snap-1", "path": "app/providers.tsx"},
-                {"snapshot_id": "snap-1", "path": "app/dashboard/page.tsx"},
-                {"snapshot_id": "snap-1", "path": "package.json"},
-            ])
-            code_symbols = MockCollection([
-                {"snapshot_id": "snap-1", "name": "PrivyProvider", "qualified_name": "PrivyProvider"},
-                {"snapshot_id": "snap-1", "name": "usePrivy", "qualified_name": "usePrivy"},
-            ])
+            repository_files = MockCollection(
+                [
+                    {"snapshot_id": "snap-1", "path": "app/providers.tsx"},
+                    {"snapshot_id": "snap-1", "path": "app/dashboard/page.tsx"},
+                    {"snapshot_id": "snap-1", "path": "package.json"},
+                ]
+            )
+            code_symbols = MockCollection(
+                [
+                    {
+                        "snapshot_id": "snap-1",
+                        "name": "PrivyProvider",
+                        "qualified_name": "PrivyProvider",
+                    },
+                    {"snapshot_id": "snap-1", "name": "usePrivy", "qualified_name": "usePrivy"},
+                ]
+            )
             revised_plans = MockCollection([])
 
         self.database = MockDB()
@@ -422,7 +432,10 @@ async def test_revision_existing_symbol_must_be_snapshot_grounded() -> None:
                 status="MODIFY",
                 source_plan_step_ids=["step-1"],
                 existing_target_files=["app/providers.tsx"],
-                existing_target_symbols=["CustomAuthProvider", "PrivyProvider"],  # CustomAuthProvider not in snapshot
+                existing_target_symbols=[
+                    "CustomAuthProvider",
+                    "PrivyProvider",
+                ],  # CustomAuthProvider not in snapshot
                 proposed_new_symbols=[],
             )
         ],
@@ -535,7 +548,9 @@ def test_classify_obligation_routing() -> None:
     from app.workflow.engine import classify_obligation_routing
 
     # 1. PROPOSED_ACTION -> PROPOSED_ACTION (preserved for synthesis only)
-    ob_prop = _make_obligation("ob-p", "Replace PrivyProvider with CustomAuthProvider in app/providers.tsx")
+    ob_prop = _make_obligation(
+        "ob-p", "Replace PrivyProvider with CustomAuthProvider in app/providers.tsx"
+    )
     ob_prop.semantic_role = SemanticRole.PROPOSED_ACTION
     assert classify_obligation_routing(ob_prop) == "PROPOSED_ACTION"
 
@@ -560,7 +575,9 @@ def test_classify_obligation_routing() -> None:
     assert classify_obligation_routing(ob_tech_c) == "REPO_INVESTIGATION"
 
     # 6. Business CONSTRAINT -> HUMAN_AUTHORITY
-    ob_biz_c = _make_obligation("ob-bc", "Data retention policy requires user approval before deletion")
+    ob_biz_c = _make_obligation(
+        "ob-bc", "Data retention policy requires user approval before deletion"
+    )
     ob_biz_c.semantic_role = SemanticRole.CONSTRAINT
     assert classify_obligation_routing(ob_biz_c) == "HUMAN_AUTHORITY"
 
@@ -637,12 +654,14 @@ async def test_revision_fake_human_decision_id_cannot_ground_change_or_step() ->
 async def test_revision_valid_human_decision_id_grounds_change_and_step() -> None:
     mock_repo = MockVerificationRepo()
     # Insert an answered human question
-    await mock_repo.database.human_questions.insert_one({
-        "id": "hq-actual-1",
-        "run_id": "run-1",
-        "obligation_id": "ob-h",
-        "answer": "Approved 30-day retention",
-    })
+    await mock_repo.database.human_questions.insert_one(
+        {
+            "id": "hq-actual-1",
+            "run_id": "run-1",
+            "obligation_id": "ob-h",
+            "answer": "Approved 30-day retention",
+        }
+    )
 
     model_response = ModelRevisedPlanResponse(
         executive_summary="Plan based on authorized human decision.",
@@ -844,4 +863,3 @@ async def test_revision_symbol_lookup_failure_fails_closed_and_preserves_fact_sy
     # UnverifiedSymbol fails closed
     assert "UnverifiedSymbol" not in step.existing_target_symbols
     assert "UnverifiedSymbol" in step.proposed_new_symbols
-

@@ -6,9 +6,11 @@ from app.core.errors import DuplicateResourceError
 from app.db.mongo import MongoManager
 from app.domain.runs import (
     HumanQuestion,
+    PathKind,
     PlanVersion,
     RepositorySnapshot,
     RunEvent,
+    SnapshotManifestEntry,
     VerificationRun,
 )
 
@@ -76,6 +78,37 @@ class RunRepository:
                     for symbol in symbols
                 ]
             )
+
+    async def replace_manifest(
+        self, snapshot_id: str, entries: list[SnapshotManifestEntry]
+    ) -> None:
+        await self._database.snapshot_manifest.delete_many({"snapshot_id": snapshot_id})
+        if entries:
+            await self._database.snapshot_manifest.insert_many(
+                [entry.model_dump(mode="python") for entry in entries]
+            )
+
+    async def get_manifest_entry(self, snapshot_id: str, path: str) -> SnapshotManifestEntry | None:
+        document = await self._database.snapshot_manifest.find_one(
+            {"snapshot_id": snapshot_id, "path": path}
+        )
+        return SnapshotManifestEntry.model_validate(document) if document else None
+
+    async def find_submodule_ancestor(
+        self, snapshot_id: str, path: str
+    ) -> SnapshotManifestEntry | None:
+        parts = path.strip("/").split("/")
+        candidate_prefixes = ["/".join(parts[:i]) for i in range(1, len(parts))]
+        if not candidate_prefixes:
+            return None
+        document = await self._database.snapshot_manifest.find_one(
+            {
+                "snapshot_id": snapshot_id,
+                "path": {"$in": candidate_prefixes},
+                "path_kind": PathKind.SUBMODULE_GITLINK.value,
+            }
+        )
+        return SnapshotManifestEntry.model_validate(document) if document else None
 
     async def create_plan_version(self, plan_version: PlanVersion) -> PlanVersion:
         if not plan_version.normalized_steps:

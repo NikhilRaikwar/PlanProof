@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     mongodb_uri: SecretStr | None = None
     mongodb_database: str = Field(default="planproof", min_length=1, max_length=64)
     mongo_server_selection_timeout_ms: int = Field(default=3_000, ge=50, le=30_000)
+    mongo_tls_insecure: bool = Field(default=False)
 
     redis_url: SecretStr | None = None
 
@@ -65,6 +66,8 @@ class Settings(BaseSettings):
                 raise ValueError("MONGODB_URI is required in production")
             if self.redis_url is None:
                 raise ValueError("REDIS_URL is required in production")
+            if self.mongo_tls_insecure:
+                raise ValueError("mongo_tls_insecure cannot be True in production environment")
         return self
 
     @field_validator("github_app_id", "github_app_slug", mode="before")

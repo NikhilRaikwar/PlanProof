@@ -87,9 +87,9 @@ class InvestigationPlanningService:
             if not action.query:
                 action.query = None
 
-        action.identifiers = [
-            ident.strip()[:100] for ident in action.identifiers if ident.strip()
-        ][:10]
+        action.identifiers = [ident.strip()[:100] for ident in action.identifiers if ident.strip()][
+            :10
+        ]
 
         return action
 
@@ -157,9 +157,7 @@ class InvestigationPlanningService:
     ) -> InvestigationPlan:
         """Create an InvestigationPlan via structured model gateway or deterministic fallback."""
         # Fetch available files in snapshot
-        cursor = self.database.repository_files.find(
-            {"snapshot_id": snapshot_id}, {"path": 1}
-        )
+        cursor = self.database.repository_files.find({"snapshot_id": snapshot_id}, {"path": 1})
         snapshot_files = {doc["path"] async for doc in cursor}
 
         model_call_id: str | None = None
