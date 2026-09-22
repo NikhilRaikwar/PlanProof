@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -24,6 +25,37 @@ if TYPE_CHECKING:
     from app.services.models import ProviderGateway
 
 logger = logging.getLogger(__name__)
+
+_PATH_EXTENSIONS = (
+    ".tsx",
+    ".ts",
+    ".jsx",
+    ".js",
+    ".py",
+    ".json",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".html",
+    ".css",
+    ".scss",
+    ".sql",
+    ".go",
+    ".rs",
+    ".java",
+    ".c",
+    ".cpp",
+)
+
+
+def _is_path_like(s: str | None) -> bool:
+    """Returns True if the string looks like a file path rather than a code symbol."""
+    if not s or not isinstance(s, str):
+        return False
+    clean = s.strip()
+    if "/" in clean or "\\" in clean:
+        return True
+    return any(clean.lower().endswith(ext) for ext in _PATH_EXTENSIONS)
 
 
 class ModelPlanChange(BaseModel):
@@ -84,12 +116,15 @@ class PlanRevisionService:
 
         for ob in obligations:
             if ob.status == ObligationStatus.VERIFIED and ob.evidence_ids:
-                # Fetch actual evidence records
                 cursor = self.database.evidence.find({"id": {"$in": ob.evidence_ids}})
                 ev_docs = [doc async for doc in cursor]
                 paths = list({doc["path"] for doc in ev_docs if doc.get("path")})
                 symbols = list(
-                    {doc["matched_query"] for doc in ev_docs if doc.get("matched_query")}
+                    {
+                        doc["matched_query"]
+                        for doc in ev_docs
+                        if doc.get("matched_query") and not _is_path_like(doc["matched_query"])
+                    }
                 )
                 facts.append(
                     AuthorizedFact(
@@ -110,7 +145,11 @@ class PlanRevisionService:
                 ev_docs = [doc async for doc in cursor]
                 paths = list({doc["path"] for doc in ev_docs if doc.get("path")})
                 symbols = list(
-                    {doc["matched_query"] for doc in ev_docs if doc.get("matched_query")}
+                    {
+                        doc["matched_query"]
+                        for doc in ev_docs
+                        if doc.get("matched_query") and not _is_path_like(doc["matched_query"])
+                    }
                 )
                 facts.append(
                     AuthorizedFact(
@@ -168,6 +207,9 @@ class PlanRevisionService:
         facts = await self.derive_authorized_facts(run_id, snapshot_id, obligations)
         fact_map = {f.id: f for f in facts}
         valid_fact_evidence_ids = {ev_id for f in facts for ev_id in f.evidence_ids}
+        valid_human_ids = {
+            f.human_decision_id for f in facts if getattr(f, "human_decision_id", None)
+        }
 
         # 2. Fetch snapshot file list for target file validation
         cursor = self.database.repository_files.find(
@@ -175,7 +217,28 @@ class PlanRevisionService:
         )
         snapshot_files = {doc["path"] async for doc in cursor}
 
-        # 3. Determine plan status
+        # 3. Collect all snapshot-grounded symbols
+        snapshot_symbols: set[str] = set()
+        try:
+            cursor_sym = self.database.code_symbols.find({"snapshot_id": snapshot_id})
+            async for sym_doc in cursor_sym:
+                for key in ("name", "qualified_name"):
+                    val = sym_doc.get(key)
+                    if val and isinstance(val, str) and not _is_path_like(val):
+                        snapshot_symbols.add(val)
+                        for token in re.findall(r"[A-Za-z_$][\w$]*", val):
+                            snapshot_symbols.add(token)
+        except Exception:
+            pass
+
+        for f in facts:
+            for sym in f.symbols:
+                if sym and not _is_path_like(sym):
+                    snapshot_symbols.add(sym)
+                    for token in re.findall(r"[A-Za-z_$][\w$]*", sym):
+                        snapshot_symbols.add(token)
+
+        # 4. Determine plan status
         statuses = {ob.status for ob in obligations}
         if status_override:
             final_status = status_override
@@ -188,7 +251,7 @@ class PlanRevisionService:
         else:
             final_status = RevisedPlanStatus.PROVISIONAL
 
-        # 4. Invoke model synthesis if gateway is available
+        # 5. Invoke model synthesis if gateway is available
         model_call_id: str | None = None
         plan_changes: list[PlanChange] = []
         implementation_plan: list[RevisedPlanStep] = []
@@ -230,14 +293,15 @@ class PlanRevisionService:
                 "CRITICAL SEMANTIC RULES:\n"
                 "1. Distinguish present repository state from planned future actions. NEVER state that a proposed replacement "
                 "or new component already exists in the repository unless verified in authorized_facts.\n"
-                "2. `existing_target_files`: MUST list only verified snapshot files that exist now in the repository.\n"
+                "2. `existing_target_files`: MUST list only verified snapshot files that currently exist in the repository.\n"
                 "3. `proposed_new_files`: MUST list any new files that need to be created.\n"
-                "4. `existing_target_symbols`: MUST list only symbols that currently exist in the repository snapshot.\n"
-                "5. `proposed_new_symbols`: MUST list any new symbols to be created/introduced.\n"
+                "4. `existing_target_symbols`: MUST list only symbol identifiers (classes, functions, hooks, components) that currently exist in the repository snapshot. NEVER put file paths in existing_target_symbols.\n"
+                "5. `proposed_new_symbols`: MUST list any new symbols to be created/introduced (e.g., 'CustomAuthProvider', 'useAuth').\n"
                 "6. `unresolved_dependency_ids`: MUST list any unresolved dependencies or obligations lacking repository evidence.\n"
-                "7. Every factual statement or modification must cite a valid `basis_fact_id` from the provided authorized_facts.\n"
-                "8. If a candidate plan step contradicts repository facts or is redundant, mark it MODIFY or REMOVE with evidence rationale.\n"
-                "9. If a step relies on unverified dependencies or requires human authority, mark confidence_basis as UNRESOLVED."
+                "7. Fact Grounding: Every PlanChange with KEEP, MODIFY, or REMOVE concerning current repository state MUST cite a valid `basis_fact_id` from authorized_facts or a valid human_decision_id.\n"
+                "8. Absence Invariant: Absence of evidence is NOT evidence of absence. If a target file or symbol is unresolved/inconclusive, do NOT claim 'file does not exist' or mark REMOVE unless an explicit AuthorizedFact establishes that negative fact. State: 'The candidate plan\\'s <target> target was not established by the verified snapshot evidence. Resolve the actual implementation target before implementation.' and mark UNRESOLVED.\n"
+                "9. ADD may be proposed without present-state basis facts, but must not pretend the artifact exists today.\n"
+                "10. If a step relies on unverified dependencies or requires human authority, mark confidence_basis as UNRESOLVED."
             )
 
             response: ModelRevisedPlanResponse | None = None
@@ -262,7 +326,9 @@ class PlanRevisionService:
                             purpose="PLAN_REVISION",
                         )
                     except Exception as exc:
-                        logger.warning(f"Plan revision model synthesis attempt {attempt} failed safely: {exc}")
+                        logger.warning(
+                            f"Plan revision model synthesis attempt {attempt} failed safely: {exc}"
+                        )
                         break
 
                     if not candidate_response:
@@ -277,10 +343,42 @@ class PlanRevisionService:
                                 validation_issues.append(
                                     f"File '{clean_p}' in step {step.order} was listed in existing_target_files, but does not exist in the snapshot"
                                 )
+                        for sym in step.existing_target_symbols:
+                            clean_sym = sym.strip()
+                            if _is_path_like(clean_sym):
+                                validation_issues.append(
+                                    f"Path '{clean_sym}' in step {step.order} was listed in existing_target_symbols. Paths belong in existing_target_files, not symbols."
+                                )
+                            elif snapshot_symbols and clean_sym not in snapshot_symbols:
+                                validation_issues.append(
+                                    f"Symbol '{clean_sym}' in step {step.order} was listed in existing_target_symbols, but is not verified in the snapshot. Move new/unverified symbols to proposed_new_symbols."
+                                )
+
+                    for change in candidate_response.plan_changes:
+                        ctype_str = change.change_type.upper()
+                        valid_facts = [fid for fid in change.basis_fact_ids if fid in fact_map]
+                        valid_human = [
+                            hid for hid in change.human_decision_ids if hid in valid_human_ids
+                        ]
+                        if (
+                            ctype_str in {"KEEP", "MODIFY", "REMOVE"}
+                            and not valid_facts
+                            and not valid_human
+                        ):
+                            if (
+                                "does not exist" in change.rationale.lower()
+                                or "not in repository" in change.rationale.lower()
+                                or ctype_str == "REMOVE"
+                            ):
+                                validation_issues.append(
+                                    f"Plan change for step '{change.source_plan_step_ids}' with change_type '{ctype_str}' asserts a fact ('{change.rationale}') without citing any valid basis_fact_ids. Mark as UNRESOLVED without claiming absence unless an authoritative negative fact exists."
+                                )
 
                     if validation_issues and attempt < max_attempts:
                         validation_error = "; ".join(validation_issues)
-                        logger.info(f"Plan revision attempt {attempt} semantic validation failed: {validation_error}. Retrying bounded...")
+                        logger.info(
+                            f"Plan revision attempt {attempt} semantic validation failed: {validation_error}. Retrying bounded..."
+                        )
                         continue
 
                     response = candidate_response
@@ -292,42 +390,88 @@ class PlanRevisionService:
                     # Validate Plan Changes
                     for raw_change in response.plan_changes:
                         try:
-                            ctype = PlanChangeType(raw_change.change_type)
+                            ctype = PlanChangeType(raw_change.change_type.upper())
                         except ValueError:
                             ctype = PlanChangeType.MODIFY
 
-                        # Validate basis facts
-                        valid_fact_ids = [fid for fid in raw_change.basis_fact_ids if fid in fact_map]
-                        valid_ev_ids = [eid for eid in raw_change.evidence_ids if eid in valid_fact_evidence_ids]
+                        valid_fact_ids = [
+                            fid for fid in raw_change.basis_fact_ids if fid in fact_map
+                        ]
+                        valid_ev_ids = [
+                            eid for eid in raw_change.evidence_ids if eid in valid_fact_evidence_ids
+                        ]
+                        valid_h_ids = [
+                            hid
+                            for hid in raw_change.human_decision_ids
+                            if hid in valid_human_ids or hid
+                        ]
+
+                        rationale = raw_change.rationale
+
+                        # Invariant 1: Factual KEEP/MODIFY/REMOVE without basis facts or human decisions must be UNRESOLVED
+                        if (
+                            ctype in {PlanChangeType.KEEP, PlanChangeType.MODIFY, PlanChangeType.REMOVE}
+                            and not valid_fact_ids
+                            and not valid_h_ids
+                        ):
+                            ctype = PlanChangeType.UNRESOLVED
+                            if "not established" not in rationale.lower():
+                                target_name = raw_change.original_text or "candidate plan step"
+                                rationale = f"The candidate plan's {target_name} target was not established by the verified snapshot evidence. Resolve the actual implementation target before implementation."
+
+                        # Invariant 2: Absence of evidence is not evidence of absence
+                        has_contradiction = any(
+                            fact_map[fid].relationship == FactRelationship.CONTRADICTS
+                            for fid in valid_fact_ids
+                        )
+                        if not has_contradiction:
+                            for pattern in [
+                                "does not exist in the repository snapshot per authorized facts",
+                                "does not exist in the repository snapshot",
+                                "does not exist",
+                            ]:
+                                if pattern in rationale:
+                                    rationale = rationale.replace(
+                                        pattern,
+                                        "was not established by the verified snapshot evidence",
+                                    )
 
                         plan_changes.append(
                             PlanChange(
                                 change_type=ctype,
                                 source_plan_step_ids=raw_change.source_plan_step_ids,
                                 original_text=raw_change.original_text,
-                                updated_text=raw_change.updated_text,
-                                rationale=raw_change.rationale,
+                                updated_text=raw_change.updated_text
+                                if ctype != PlanChangeType.UNRESOLVED
+                                else None,
+                                rationale=rationale,
                                 basis_fact_ids=valid_fact_ids,
                                 evidence_ids=valid_ev_ids,
-                                human_decision_ids=raw_change.human_decision_ids,
+                                human_decision_ids=valid_h_ids,
                             )
                         )
 
                     # Validate Implementation Plan Steps
                     for raw_step in response.implementation_plan:
                         try:
-                            stype = PlanChangeType(raw_step.status)
+                            stype = PlanChangeType(raw_step.status.upper())
                         except ValueError:
                             stype = PlanChangeType.MODIFY
 
-                        valid_fact_ids = [fid for fid in raw_step.basis_fact_ids if fid in fact_map]
-                        valid_ev_ids = [eid for eid in raw_step.supporting_evidence_ids if eid in valid_fact_evidence_ids]
+                        valid_fact_ids = [
+                            fid for fid in raw_step.basis_fact_ids if fid in fact_map
+                        ]
+                        valid_ev_ids = [
+                            eid
+                            for eid in raw_step.supporting_evidence_ids
+                            if eid in valid_fact_evidence_ids
+                        ]
 
                         # Verify existing target files strictly exist in snapshot
                         existing_files: list[str] = []
-                        suggested_files: list[str] = list(raw_step.proposed_new_files)
-
+                        suggested_files: list[str] = []
                         step_has_invalid_existing_file = False
+
                         for fpath in raw_step.existing_target_files:
                             clean_fpath = fpath.strip().replace("\\", "/")
                             if clean_fpath in snapshot_files:
@@ -336,13 +480,75 @@ class PlanRevisionService:
                                 step_has_invalid_existing_file = True
                                 suggested_files.append(clean_fpath)
 
-                        if step_has_invalid_existing_file:
+                        for fpath in raw_step.proposed_new_files:
+                            clean_fpath = fpath.strip().replace("\\", "/")
+                            if clean_fpath and clean_fpath not in suggested_files:
+                                suggested_files.append(clean_fpath)
+
+                        # Verify existing target symbols (reject paths and unverified symbols)
+                        existing_symbols: list[str] = []
+                        proposed_symbols: list[str] = []
+
+                        for sym in raw_step.existing_target_symbols:
+                            clean_sym = sym.strip()
+                            if not clean_sym or _is_path_like(clean_sym):
+                                continue
+                            if not snapshot_symbols or clean_sym in snapshot_symbols:
+                                existing_symbols.append(clean_sym)
+                            else:
+                                proposed_symbols.append(clean_sym)
+
+                        for sym in raw_step.proposed_new_symbols:
+                            clean_sym = sym.strip()
+                            if (
+                                clean_sym
+                                and not _is_path_like(clean_sym)
+                                and clean_sym not in proposed_symbols
+                            ):
+                                proposed_symbols.append(clean_sym)
+
+                        # Handle ungrounded/invalid steps
+                        unresolved_deps = list(raw_step.unresolved_dependency_ids)
+                        if step_has_invalid_existing_file or (
+                            not valid_fact_ids
+                            and not raw_step.supporting_human_decision_ids
+                            and stype not in {PlanChangeType.ADD, PlanChangeType.UNRESOLVED}
+                        ):
                             stype = PlanChangeType.UNRESOLVED
 
+                        # Sanitize negative absence claims in rationale and action
+                        has_contradiction = any(
+                            fact_map[fid].relationship == FactRelationship.CONTRADICTS
+                            for fid in valid_fact_ids
+                        )
+                        rationale = raw_step.rationale
+                        action = raw_step.action
+
+                        if not has_contradiction:
+                            for pattern in [
+                                "does not exist in the repository snapshot per authorized facts",
+                                "does not exist in the repository snapshot",
+                                "does not exist",
+                            ]:
+                                if pattern in rationale:
+                                    rationale = rationale.replace(
+                                        pattern,
+                                        "was not established by the verified snapshot evidence",
+                                    )
+                                if pattern in action:
+                                    action = action.replace(
+                                        pattern,
+                                        "was not established by the verified snapshot evidence",
+                                    )
+
                         # Determine strict confidence basis
-                        if step_has_invalid_existing_file:
+                        if stype == PlanChangeType.UNRESOLVED or step_has_invalid_existing_file:
                             confidence = ConfidenceBasis.UNRESOLVED
-                        elif valid_fact_ids and any(fact_map[fid].relationship in {FactRelationship.SUPPORTS, FactRelationship.CONTRADICTS} for fid in valid_fact_ids):
+                        elif valid_fact_ids and any(
+                            fact_map[fid].relationship
+                            in {FactRelationship.SUPPORTS, FactRelationship.CONTRADICTS}
+                            for fid in valid_fact_ids
+                        ):
                             confidence = ConfidenceBasis.EVIDENCE_BACKED
                         elif raw_step.supporting_human_decision_ids:
                             confidence = ConfidenceBasis.HUMAN_CONFIRMED
@@ -351,36 +557,41 @@ class PlanRevisionService:
                         else:
                             confidence = ConfidenceBasis.UNRESOLVED
 
+                        target_syms = list(dict.fromkeys(existing_symbols + proposed_symbols))
+
                         implementation_plan.append(
                             RevisedPlanStep(
                                 order=raw_step.order,
-                                action=raw_step.action,
-                                rationale=raw_step.rationale,
+                                action=action,
+                                rationale=rationale,
                                 status=stype,
                                 source_plan_step_ids=raw_step.source_plan_step_ids,
                                 basis_fact_ids=valid_fact_ids,
                                 supporting_obligation_ids=raw_step.supporting_obligation_ids,
                                 supporting_evidence_ids=valid_ev_ids,
                                 supporting_human_decision_ids=raw_step.supporting_human_decision_ids,
-                                unresolved_dependency_ids=raw_step.unresolved_dependency_ids,
+                                unresolved_dependency_ids=unresolved_deps,
                                 existing_target_files=existing_files,
                                 proposed_new_files=suggested_files,
-                                existing_target_symbols=raw_step.existing_target_symbols,
-                                proposed_new_symbols=raw_step.proposed_new_symbols,
-                                target_symbols=raw_step.target_symbols or (raw_step.existing_target_symbols + raw_step.proposed_new_symbols),
+                                existing_target_symbols=existing_symbols,
+                                proposed_new_symbols=proposed_symbols,
+                                target_symbols=target_syms,
                                 confidence_basis=confidence,
                             )
                         )
             except Exception as exc:
                 logger.warning(f"Plan revision model synthesis failed safely: {exc}")
-                # Failure mode: Do NOT fabricate a false plan.
                 final_status = RevisedPlanStatus.UNAVAILABLE
-                executive_summary = "Verification completed, but updated-plan synthesis was unavailable."
+                executive_summary = (
+                    "Verification completed, but updated-plan synthesis was unavailable."
+                )
 
         # If model failed or no plan produced, create safe fallback entry
         if not implementation_plan and final_status != RevisedPlanStatus.UNAVAILABLE:
             final_status = RevisedPlanStatus.UNAVAILABLE
-            executive_summary = "Verification completed, but updated-plan synthesis was unavailable."
+            executive_summary = (
+                "Verification completed, but updated-plan synthesis was unavailable."
+            )
 
         revised_plan = RevisedPlan(
             run_id=run_id,
@@ -396,5 +607,12 @@ class PlanRevisionService:
         )
 
         saved = await self.repository.create(revised_plan)
-        logger.info("Saved revised plan id=%s run_id=%s version=%s status=%s steps=%d", saved.id, run_id, saved.revision_version, saved.status, len(saved.implementation_plan))
+        logger.info(
+            "Saved revised plan id=%s run_id=%s version=%s status=%s steps=%d",
+            saved.id,
+            run_id,
+            saved.revision_version,
+            saved.status,
+            len(saved.implementation_plan),
+        )
         return saved

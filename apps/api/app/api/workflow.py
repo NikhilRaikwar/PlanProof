@@ -290,7 +290,15 @@ async def get_verification_run(
     plan = await runs_repo.get_plan_version(run.plan_version_id)
 
     count_cursor = await database.proof_obligations.aggregate(
-        [{"$match": {"run_id": run.id}}, {"$group": {"_id": "$status", "count": {"$sum": 1}}}]
+        [
+            {
+                "$match": {
+                    "run_id": run.id,
+                    "semantic_role": {"$ne": "PROPOSED_ACTION"},
+                }
+            },
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+        ]
     )
     counts = {item["_id"]: item["count"] async for item in count_cursor}
 

@@ -157,11 +157,12 @@ export default function RunReportPage() {
   const changeDesc = plan?.change_request || 'Verification run change request'
 
   // Counters derive directly from run-scoped collections
+  const investigatedObligations = obligations.filter(o => o.semantic_role !== 'PROPOSED_ACTION')
   const verifiedCount = projection.obligation_counts['VERIFIED'] ?? 0
   const disprovedCount = projection.obligation_counts['DISPROVED'] ?? 0
   const inconclusiveCount = projection.obligation_counts['INCONCLUSIVE'] ?? 0
   const humanRequiredCount = projection.obligation_counts['HUMAN_REQUIRED'] ?? 0
-  const totalObligations = obligations.length
+  const totalObligations = investigatedObligations.length > 0 ? investigatedObligations.length : obligations.length
 
   const openQuestions = projection.human_questions.filter(q => q.status === 'OPEN')
   const answeredQuestions = projection.human_questions.filter(q => q.status === 'ANSWERED')
@@ -471,7 +472,11 @@ export default function RunReportPage() {
                     </div>
 
                     <div>
-                      {isObVerified ? (
+                      {obligation.semantic_role === 'PROPOSED_ACTION' ? (
+                        <span className="badge-pill-base" style={{ background: '#F5F3FF', color: '#6D28D9', borderColor: '#DDD6FE' }}>
+                          PROPOSED ACTION · SYNTHESIS ONLY
+                        </span>
+                      ) : isObVerified ? (
                         <span className="badge-pill-base badge-verified">
                           <CheckCircle2 size={12} /> VERIFIED
                         </span>

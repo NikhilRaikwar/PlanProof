@@ -5,6 +5,8 @@ import pytest
 from app.domain.facts import FactRelationship
 from app.domain.investigation import InvestigationAction, InvestigationActionType
 from app.domain.revised_plans import (
+    ConfidenceBasis,
+    PlanChangeType,
     RevisedPlanStatus,
 )
 from app.domain.runs import OriginalPlanStep, PlanVersion
@@ -15,6 +17,12 @@ from app.domain.verification import (
     ProofObligation,
 )
 from app.services.investigation_planning import InvestigationPlanningService
+from app.services.revision import (
+    ModelPlanChange,
+    ModelRevisedPlanResponse,
+    ModelRevisedPlanStep,
+    PlanRevisionService,
+)
 from app.workflow.engine import (
     _extract_explicit_imported_identifiers,
     _extract_explicit_paths,
@@ -51,7 +59,10 @@ def _make_obligation(
 
 
 def test_extract_explicit_paths() -> None:
-    ob = _make_obligation("ob-1", "Update app/providers.tsx to include PrivyProvider and wrap components/auth-modal.tsx")
+    ob = _make_obligation(
+        "ob-1",
+        "Update app/providers.tsx to include PrivyProvider and wrap components/auth-modal.tsx",
+    )
     paths = _extract_explicit_paths(ob)
     assert "app/providers.tsx" in paths
     assert "components/auth-modal.tsx" in paths
@@ -59,14 +70,21 @@ def test_extract_explicit_paths() -> None:
 
 
 def test_extract_explicit_imported_identifiers() -> None:
-    ob = _make_obligation("ob-1", "Verify that PrivyProvider is imported from '@privy-io/react-auth' in app/providers.tsx")
+    ob = _make_obligation(
+        "ob-1",
+        "Verify that PrivyProvider is imported from '@privy-io/react-auth' in app/providers.tsx",
+    )
     identifiers = _extract_explicit_imported_identifiers(ob)
     assert "PrivyProvider" in identifiers
 
 
 def test_check_evidence_relevance_strict_path() -> None:
-    ob = _make_obligation("ob-1", "Verify PrivyProvider is imported in app/providers.tsx", claim_type="FILE_EXISTS")
-    
+    ob = _make_obligation(
+        "ob-1",
+        "Verify PrivyProvider is imported in app/providers.tsx",
+        claim_type="FILE_EXISTS",
+    )
+
     # Exact path match
     is_rel = check_evidence_relevance(
         obligation=ob,
@@ -87,7 +105,11 @@ def test_check_evidence_relevance_strict_path() -> None:
 
 
 def test_check_evidence_sufficiency_symbol_and_env() -> None:
-    ob = _make_obligation("ob-1", "Verify PrivyProvider is imported in app/providers.tsx", claim_type="SYMBOL_EXPORTED")
+    ob = _make_obligation(
+        "ob-1",
+        "Verify PrivyProvider is imported in app/providers.tsx",
+        claim_type="SYMBOL_EXPORTED",
+    )
 
     # Symbol sufficiency: search for PrivyProvider, snippet has usePrivy only -> NOT sufficient
     is_suff = check_evidence_sufficiency(
@@ -151,28 +173,53 @@ class MockVerificationRepo:
     def __init__(self) -> None:
         class MockDB:
             evidence = MockCollection([
-                {"id": "ev-1", "path": "app/providers.tsx", "matched_query": "PrivyProvider"},
-                {"id": "ev-2", "path": "app/dashboard/page.tsx", "matched_query": "LegacyAuthProvider"},
+                {
+                    "id": "ev-1",
+                    "path": "app/providers.tsx",
+                    "matched_query": "PrivyProvider",
+                },
+                {
+                    "id": "ev-2",
+                    "path": "app/dashboard/page.tsx",
+                    "matched_query": "usePrivy",
+                },
             ])
             human_questions = MockCollection([])
             authorized_facts = MockCollection([])
             repository_files = MockCollection([
                 {"snapshot_id": "snap-1", "path": "app/providers.tsx"},
+                {"snapshot_id": "snap-1", "path": "app/dashboard/page.tsx"},
                 {"snapshot_id": "snap-1", "path": "package.json"},
             ])
+            code_symbols = MockCollection([
+                {"snapshot_id": "snap-1", "name": "PrivyProvider", "qualified_name": "PrivyProvider"},
+                {"snapshot_id": "snap-1", "name": "usePrivy", "qualified_name": "usePrivy"},
+            ])
             revised_plans = MockCollection([])
-        
+
         self.database = MockDB()
+
         class MockMongo:
             def database(m_self):
                 return self.database
+
         self._mongo = MockMongo()
+
+
+class MockGateway:
+    def __init__(self, response: ModelRevisedPlanResponse) -> None:
+        self._response = response
+        self.call_count = 0
+
+    async def complete_structured(self, *args, **kwargs):
+        self.call_count += 1
+        return self._response
 
 
 def test_investigation_planning_service_validation() -> None:
     service = InvestigationPlanningService(gateway=None, verification=MockVerificationRepo())  # type: ignore[arg-type]
     allowed_files = {"app/providers.tsx", "package.json"}
-    
+
     valid_action = InvestigationAction(
         action_type=InvestigationActionType.INSPECT_EXACT_FILE,
         path="app/providers.tsx",
@@ -213,7 +260,6 @@ def test_investigation_planning_service_fallback() -> None:
 
 @pytest.mark.asyncio
 async def test_plan_revision_fact_derivation_async() -> None:
-    from app.services.revision import PlanRevisionService
     mock_repo = MockVerificationRepo()
     service = PlanRevisionService(gateway=None, verification=mock_repo)  # type: ignore[arg-type]
 
@@ -248,7 +294,6 @@ async def test_plan_revision_fact_derivation_async() -> None:
 
 @pytest.mark.asyncio
 async def test_plan_revision_synthesize_unavailable_when_no_model() -> None:
-    from app.services.revision import PlanRevisionService
     mock_repo = MockVerificationRepo()
     service = PlanRevisionService(gateway=None, verification=mock_repo)  # type: ignore[arg-type]
 
@@ -258,7 +303,11 @@ async def test_plan_revision_synthesize_unavailable_when_no_model() -> None:
         version=1,
         change_request="Integrate Privy authentication",
         candidate_plan="1. Update app/providers.tsx with PrivyProvider",
-        normalized_steps=[OriginalPlanStep(id="step-1", order=1, text="Update app/providers.tsx with PrivyProvider")],
+        normalized_steps=[
+            OriginalPlanStep(
+                id="step-1", order=1, text="Update app/providers.tsx with PrivyProvider"
+            )
+        ],
     )
 
     ob_verified = _make_obligation(
@@ -280,6 +329,205 @@ async def test_plan_revision_synthesize_unavailable_when_no_model() -> None:
     assert revised_plan.status == RevisedPlanStatus.UNAVAILABLE
     assert revised_plan.revision_version == 1
     assert "unavailable" in revised_plan.executive_summary.lower()
+
+
+@pytest.mark.asyncio
+async def test_revision_rejects_file_path_as_existing_symbol() -> None:
+    mock_repo = MockVerificationRepo()
+    # Candidate response where model hallucinated file path in existing_target_symbols
+    model_response = ModelRevisedPlanResponse(
+        executive_summary="Migrating auth provider.",
+        plan_changes=[
+            ModelPlanChange(
+                change_type="MODIFY",
+                source_plan_step_ids=["step-1"],
+                original_text="Update providers",
+                updated_text="Update app/providers.tsx",
+                rationale="Verified present-state fact.",
+                basis_fact_ids=[],  # will be filled
+            )
+        ],
+        implementation_plan=[
+            ModelRevisedPlanStep(
+                order=1,
+                action="Update app/providers.tsx",
+                rationale="Grounding update",
+                status="MODIFY",
+                source_plan_step_ids=["step-1"],
+                existing_target_files=["app/providers.tsx"],
+                existing_target_symbols=["app/providers.tsx", "PrivyProvider"],  # PATH present!
+                proposed_new_symbols=["CustomAuthProvider"],
+            )
+        ],
+    )
+
+    gateway = MockGateway(model_response)
+    service = PlanRevisionService(gateway=gateway, verification=mock_repo)  # type: ignore[arg-type]
+
+    ob = _make_obligation(
+        "ob-1",
+        "app/providers.tsx imports PrivyProvider",
+        status=ObligationStatus.VERIFIED,
+        evidence_ids=["ev-1"],
+    )
+
+    facts = await service.derive_authorized_facts("run-1", "snap-1", [ob])
+    model_response.plan_changes[0].basis_fact_ids = [facts[0].id]
+    model_response.implementation_plan[0].basis_fact_ids = [facts[0].id]
+
+    plan_ver = PlanVersion(
+        id="pv-1",
+        project_id="proj-1",
+        version=1,
+        change_request="Migrate auth",
+        candidate_plan="1. Update providers",
+    )
+
+    revised_plan = await service.synthesize(
+        run_id="run-1",
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version=plan_ver,
+        obligations=[ob],
+    )
+
+    step = revised_plan.implementation_plan[0]
+    # Path MUST be removed from existing_target_symbols
+    assert "app/providers.tsx" not in step.existing_target_symbols
+    assert "PrivyProvider" in step.existing_target_symbols
+    assert "CustomAuthProvider" in step.proposed_new_symbols
+
+
+@pytest.mark.asyncio
+async def test_revision_existing_symbol_must_be_snapshot_grounded() -> None:
+    mock_repo = MockVerificationRepo()
+    # Model claims CustomAuthProvider is an EXISTING symbol, but snapshot only has PrivyProvider
+    model_response = ModelRevisedPlanResponse(
+        executive_summary="Migrating auth provider.",
+        plan_changes=[
+            ModelPlanChange(
+                change_type="MODIFY",
+                source_plan_step_ids=["step-1"],
+                original_text="Update providers",
+                updated_text="Update app/providers.tsx",
+                rationale="Verified present-state fact.",
+                basis_fact_ids=[],
+            )
+        ],
+        implementation_plan=[
+            ModelRevisedPlanStep(
+                order=1,
+                action="Update app/providers.tsx",
+                rationale="Grounding update",
+                status="MODIFY",
+                source_plan_step_ids=["step-1"],
+                existing_target_files=["app/providers.tsx"],
+                existing_target_symbols=["CustomAuthProvider", "PrivyProvider"],  # CustomAuthProvider not in snapshot
+                proposed_new_symbols=[],
+            )
+        ],
+    )
+
+    gateway = MockGateway(model_response)
+    service = PlanRevisionService(gateway=gateway, verification=mock_repo)  # type: ignore[arg-type]
+
+    ob = _make_obligation(
+        "ob-1",
+        "app/providers.tsx imports PrivyProvider",
+        status=ObligationStatus.VERIFIED,
+        evidence_ids=["ev-1"],
+    )
+
+    facts = await service.derive_authorized_facts("run-1", "snap-1", [ob])
+    model_response.plan_changes[0].basis_fact_ids = [facts[0].id]
+    model_response.implementation_plan[0].basis_fact_ids = [facts[0].id]
+
+    plan_ver = PlanVersion(
+        id="pv-1",
+        project_id="proj-1",
+        version=1,
+        change_request="Migrate auth",
+        candidate_plan="1. Update providers",
+    )
+
+    revised_plan = await service.synthesize(
+        run_id="run-1",
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version=plan_ver,
+        obligations=[ob],
+    )
+
+    step = revised_plan.implementation_plan[0]
+    # CustomAuthProvider MUST NOT be in existing_target_symbols; moved to proposed_new_symbols
+    assert "CustomAuthProvider" not in step.existing_target_symbols
+    assert "CustomAuthProvider" in step.proposed_new_symbols
+    assert "PrivyProvider" in step.existing_target_symbols
+
+
+@pytest.mark.asyncio
+async def test_inconclusive_path_cannot_claim_file_does_not_exist() -> None:
+    mock_repo = MockVerificationRepo()
+    # Model attempts to say "components/auth-modal.tsx does not exist" without a contradiction fact
+    model_response = ModelRevisedPlanResponse(
+        executive_summary="Migrating auth provider.",
+        plan_changes=[
+            ModelPlanChange(
+                change_type="REMOVE",
+                source_plan_step_ids=["step-4"],
+                original_text="Update components/auth-modal.tsx",
+                updated_text=None,
+                rationale="The file components/auth-modal.tsx does not exist in the repository snapshot per authorized facts",
+                basis_fact_ids=[],
+            )
+        ],
+        implementation_plan=[
+            ModelRevisedPlanStep(
+                order=1,
+                action="Remove components/auth-modal.tsx step because it does not exist",
+                rationale="components/auth-modal.tsx does not exist in the repository snapshot",
+                status="REMOVE",
+                source_plan_step_ids=["step-4"],
+                basis_fact_ids=[],
+            )
+        ],
+    )
+
+    gateway = MockGateway(model_response)
+    service = PlanRevisionService(gateway=gateway, verification=mock_repo)  # type: ignore[arg-type]
+
+    ob_inconclusive = _make_obligation(
+        "ob-4",
+        "components/auth-modal.tsx triggers login",
+        status=ObligationStatus.INCONCLUSIVE,
+    )
+
+    plan_ver = PlanVersion(
+        id="pv-1",
+        project_id="proj-1",
+        version=1,
+        change_request="Migrate auth",
+        candidate_plan="4. Update components/auth-modal.tsx",
+    )
+
+    revised_plan = await service.synthesize(
+        run_id="run-1",
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version=plan_ver,
+        obligations=[ob_inconclusive],
+    )
+
+    change = revised_plan.plan_changes[0]
+    assert change.change_type == PlanChangeType.UNRESOLVED
+    assert "does not exist" not in change.rationale
+    assert "not established" in change.rationale.lower()
+
+    step = revised_plan.implementation_plan[0]
+    assert step.status == PlanChangeType.UNRESOLVED
+    assert step.confidence_basis == ConfidenceBasis.UNRESOLVED
+    assert "does not exist" not in step.rationale
+    assert "does not exist" not in step.action
 
 
 def test_classify_obligation_routing() -> None:
@@ -315,6 +563,3 @@ def test_classify_obligation_routing() -> None:
     ob_biz_c = _make_obligation("ob-bc", "Data retention policy requires user approval before deletion")
     ob_biz_c.semantic_role = SemanticRole.CONSTRAINT
     assert classify_obligation_routing(ob_biz_c) == "HUMAN_AUTHORITY"
-
-
-

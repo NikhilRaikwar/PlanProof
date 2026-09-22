@@ -67,6 +67,7 @@ export type Obligation = {
   category: string
   criticality: string
   status: string
+  semantic_role?: string
   evidence_ids: string[]
   counter_evidence_ids: string[]
   verification_hints?: string[]
