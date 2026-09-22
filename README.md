@@ -6,7 +6,7 @@
 
 ### *Pre-flight verification for AI-generated engineering plans.*
 
-**Engineering plans are hypotheses. PlanProof tests them before agents build them.**
+**PlanProof verifies an AI-generated engineering plan against an exact repository snapshot, separates proposed future actions from present-state facts, and returns an evidence-grounded advisory implementation plan before coding begins.**
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-planproof.nikhilraikwar.me-FF4D2E?style=for-the-badge&logo=googlecloud&logoColor=white)](https://planproof.nikhilraikwar.me)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
@@ -57,7 +57,7 @@
 7. [Deterministic Repository Tools](#deterministic-repository-tools)
 8. [Key Architectural Decisions](#key-architectural-decisions)
    - [Why One Orchestrator (Not a Multi-Agent Swarm)](#why-one-orchestrator-not-a-multi-agent-swarm)
-   - [Why AST Symbol Indexing (Not Premature Vector RAG)](#why-ast-symbol-indexing-not-premature-vector-rag)
+   - [Why Indexed Symbols + Exact Source Evidence (Not Premature Vector RAG)](#why-indexed-symbols--exact-source-evidence-not-premature-vector-rag)
 9. [Durable Memory & Persistence Model](#durable-memory--persistence-model)
 10. [Human-in-the-Loop (HITL) as an Authority Boundary](#human-in-the-loop-hitl-as-an-authority-boundary)
 11. [Failure Handling & Safety Matrix](#failure-handling--safety-matrix)
@@ -90,28 +90,37 @@ AI coding agents can generate convincing, highly detailed implementation plans t
 
 The primary risk in autonomous software engineering is not merely hallucinated syntax—**it is an agent executing at scale against a fundamentally flawed plan.**
 
-PlanProof introduces a deterministic verification gate **before** code generation, code editing, or testing pipelines begin.
+PlanProof introduces a deterministic verification gate and evidence-grounded plan revision **before** code generation, code editing, or testing pipelines begin.
 
 ---
 
 ## What PlanProof Does
 
-PlanProof converts unstructured engineering intent and candidate implementation plans into verifiable claims, tests those claims against real source code, and issues a binding policy verdict:
+PlanProof converts unstructured engineering intent and candidate implementation plans into verifiable claims, separates proposed future actions from present-state facts, tests those claims against real source code, issues an authoritative gate policy, and generates an evidence-grounded advisory updated implementation plan:
 
 ```text
-GitHub Repository / Demo Fixture
-  └──> Exact Commit SHA
-        └──> Immutable Snapshot (Hashed files + indexed symbols)
-              └──> Change Request + Candidate Plan
-                    └──> Proof Obligations (Structured Pydantic claims)
-                          ├──> Deterministic Validators
-                          ├──> Bounded Repository Investigation Tools
-                          └──> Server-Issued Evidence (Cryptographically bound)
-                                       ├──> COMPLETE (All obligations verified)
-                                       ├──> BLOCKED (Counter-evidence discovered)
-                                       ├──> HUMAN_DECISION_REQUIRED (Authority gap)
-                                       └──> INCONCLUSIVE (Budget exhausted / safe abstention)
+Change Request + Candidate Plan
+  └──> Stable Original Plan Steps
+        └──> Semantic Role Decomposition
+              ├──> PROPOSED_ACTION (Preserved for revised plan synthesis; never investigated as present facts)
+              ├──> CURRENT_STATE_ASSUMPTION / EXISTING_DEPENDENCY (Repository-investigated)
+              ├──> CONSTRAINT (Technical repository check vs Human/Policy authority)
+              └──> HUMAN_DECISION (Routes to Human Authority / HUMAN_WAIT)
+                    └──> Model Investigation Proposal
+                          └──> Deterministic Tool Authorization
+                                └──> Immutable Snapshot Investigation (ast.parse / TS Regex / Lexical)
+                                      └──> Server-Issued Evidence (Cryptographically bound)
+                                            └──> Authorized Facts (Canonical present truths)
+                                                  └──> Deterministic Plan Gate (COMPLETE / BLOCKED / INCONCLUSIVE / HUMAN_DECISION_REQUIRED)
+                                                        └──> Evidence-Grounded Advisory Updated Implementation Plan
 ```
+
+### Semantic Role Boundaries
+
+- **`PROPOSED_ACTION`**: Preserved strictly for revised-plan synthesis; never sent to proof tools or verified as an already-existing repository fact.
+- **`CURRENT_STATE_ASSUMPTION`** & **`EXISTING_DEPENDENCY`**: Investigated deterministically against the immutable snapshot.
+- **`HUMAN_DECISION`**: Routes to human authority workflow (`HUMAN_REQUIRED` / `HUMAN_WAIT`).
+- **`CONSTRAINT`**: Classified into technical repository-verifiable constraints vs business/external policy authority.
 
 ---
 
@@ -124,20 +133,25 @@ The end-to-end verification lifecycle strictly separates non-authoritative LLM p
 ```mermaid
 flowchart TD
   subgraph Ingestion["1. Immutable Ingestion"]
-    Repo[GitHub Repository] --> SHA[Resolve Commit SHA]
-    SHA --> Snapshot[(Immutable Snapshot: Files + Symbols)]
+    Repo[GitHub Repository Ref] --> SHA[Resolve Commit SHA]
+    SHA --> Snapshot[(Immutable Snapshot: Hashed Files + Symbols)]
   end
 
-  subgraph Extraction["2. Obligation Extraction"]
+  subgraph Extraction["2. Semantic Role Decomposition"]
     Plan[Candidate Plan + Change Request] --> LLMExtract[LLM Structured Claim Proposal]
-    LLMExtract --> ValidateObligations[Server Pydantic Validation & Normalization]
-    ValidateObligations --> Obligations[(Proof Obligations)]
+    LLMExtract --> ValidateRoles[Server Pydantic Validation & Role Routing]
+    ValidateRoles --> RoleCurrent[CURRENT_STATE_ASSUMPTION / EXISTING_DEPENDENCY]
+    ValidateRoles --> RoleAction[PROPOSED_ACTION: Preserved for Synthesis]
+    ValidateRoles --> RoleConstraint[CONSTRAINT: Technical vs Human Policy]
+    ValidateRoles --> RoleHuman[HUMAN_DECISION: Human Authority]
   end
 
   subgraph Investigation["3. Bounded Investigation"]
-    Snapshot --> RepTools[Snapshot-Scoped Tools: AST & Search]
-    Obligations --> QueryPlanner[Deterministic Focused Query Planning]
-    QueryPlanner --> RepTools
+    RoleCurrent --> InvProp[Model Investigation Proposal]
+    RoleConstraint -->|Technical| InvProp
+    InvProp --> AuthTool[Deterministic Tool Authorization]
+    AuthTool --> RepTools[Snapshot Tools: ast.parse / TS Regex / Lexical Search]
+    Snapshot --> RepTools
     RepTools --> ToolRun[(Audited Tool Run)]
     ToolRun --> SufficiencyCheck{Deterministic Evidence Sufficiency}
     SufficiencyCheck -->|Sufficient| EvidenceIssuer[Server Evidence Authority: Content Hash Verification]
@@ -145,10 +159,11 @@ flowchart TD
     EvidenceIssuer --> Evidence[(Server-Issued Evidence)]
   end
 
-  subgraph AuthorityGate["4. Authority & Final Plan Gate"]
+  subgraph AuthorityGate["4. Authority, Facts & Final Plan Gate"]
     Evidence --> PolicyCheck[Deterministic Status Policy]
     InconclusiveCheck --> PolicyCheck
-    PolicyCheck -->|External Authority Gap| HumanWait[HUMAN_REQUIRED: Workflow Pauses]
+    RoleHuman --> HumanWait[HUMAN_WAIT: Workflow Pauses]
+    RoleConstraint -->|Business Policy| HumanWait
     HumanWait --> HumanInput[Human Submits Decision]
     HumanInput --> PolicyCheck
     PolicyCheck --> FinalGate{Deterministic Gate Evaluator}
@@ -156,6 +171,14 @@ flowchart TD
     FinalGate -->|Evidence Satisfied| Complete[COMPLETE]
     FinalGate -->|Ambiguous / Budget Limit| Inconclusive[INCONCLUSIVE]
     FinalGate -->|Awaiting Decision| HumanGate[HUMAN_DECISION_REQUIRED]
+    PolicyCheck --> Facts[(Server-Issued Authorized Facts)]
+  end
+
+  subgraph Synthesis["5. Evidence-Grounded Plan Revision"]
+    Facts --> SynthEngine[Advisory Plan Revision Engine]
+    RoleAction --> SynthEngine
+    SynthEngine --> InvariantCheck{Server Fact Citation & Absence Invariant Check}
+    InvariantCheck --> AdvisoryPlan[Evidence-Grounded Advisory Updated Implementation Plan]
   end
 
   style Repo fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
@@ -163,9 +186,13 @@ flowchart TD
   style Snapshot fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
   style Plan fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
   style LLMExtract fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
-  style ValidateObligations fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
-  style Obligations fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
-  style QueryPlanner fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style ValidateRoles fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style RoleCurrent fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style RoleAction fill:#fdf4ff,stroke:#c084fc,stroke-width:1.5px,color:#6b21a8
+  style RoleConstraint fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style RoleHuman fill:#fffbeb,stroke:#d97706,stroke-width:1.5px,color:#78350f
+  style InvProp fill:#fff1eb,stroke:#ff4d2e,stroke-width:1.5px,color:#9a1c00
+  style AuthTool fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
   style RepTools fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
   style ToolRun fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
   style SufficiencyCheck fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
@@ -180,6 +207,10 @@ flowchart TD
   style Complete fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
   style Inconclusive fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#475569
   style HumanGate fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f
+  style Facts fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
+  style SynthEngine fill:#fff1eb,stroke:#ff4d2e,stroke-width:1.5px,color:#9a1c00
+  style InvariantCheck fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style AdvisoryPlan fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1
 ```
 
 ---
@@ -190,14 +221,16 @@ PlanProof runs a bounded state loop. The model never loops indefinitely, cannot 
 
 ```mermaid
 flowchart TD
-  Start([Next Pending Obligation]) --> CheckCat{Category: Genuine Business or Cross-Service Intent?}
-  CheckCat -->|Yes| HumanState[Emit HUMAN_REQUIRED / Persist Question]
-  CheckCat -->|No| CheckBudget{Within Investigation Budget?}
+  Start([Next Pending Obligation]) --> CheckRole{Semantic Role Check}
+  CheckRole -->|PROPOSED_ACTION| ActionPreserve[Preserve for Synthesis / No Tool Run]
+  CheckRole -->|HUMAN_DECISION| HumanState[Emit HUMAN_REQUIRED / Persist Question]
+  CheckRole -->|CURRENT_STATE / DEPENDENCY| CheckBudget{Within Investigation Budget?}
 
   CheckBudget -->|Budget Exhausted| InconclusiveState[Mark INCONCLUSIVE: Safe Abstention]
-  CheckBudget -->|Within Budget| QueryPlan[Deterministic Query Planning: Identifiers & Hints]
+  CheckBudget -->|Within Budget| InvProposal[Model Proposes Investigation Action]
 
-  QueryPlan --> ExecuteTool[Execute Snapshot-Scoped Tools: AST & Lexical]
+  InvProposal --> AuthTool[Deterministic Server Authorizes Tool & Range]
+  AuthTool --> ExecuteTool[Execute Snapshot Tools: ast.parse / TS Regex / Lexical]
   ExecuteTool --> RecordToolRun[(Persist Tool Run + Latency + Input Hash)]
 
   RecordToolRun --> CheckToolStatus{Tool Succeeded?}
@@ -220,9 +253,11 @@ flowchart TD
   ApplyPolicy -->|Inconclusive| InconclusiveState
 
   style Start fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1
-  style CheckCat fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style CheckRole fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style ActionPreserve fill:#fdf4ff,stroke:#c084fc,stroke-width:1.5px,color:#6b21a8
   style CheckBudget fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
-  style QueryPlan fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style InvProposal fill:#fff1eb,stroke:#ff4d2e,stroke-width:1.5px,color:#9a1c00
+  style AuthTool fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
   style ExecuteTool fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
   style RecordToolRun fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
   style CheckToolStatus fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
@@ -308,14 +343,13 @@ stateDiagram-v2
   CREATED --> QUEUED: Enqueued to Redis
   QUEUED --> EXTRACTING_OBLIGATIONS: Worker dequeues
   
-  EXTRACTING_OBLIGATIONS --> VERIFYING: Obligations saved
+  EXTRACTING_OBLIGATIONS --> VERIFYING: Obligations decomposed & saved
   EXTRACTING_OBLIGATIONS --> FAILED: Malformed payload
 
-
-  VERIFYING --> HUMAN_WAIT: Authority gap detected
-  HUMAN_WAIT --> QUEUED: Human submits answer
+  VERIFYING --> HUMAN_WAIT: Authority gap detected (Draft v1 plan)
+  HUMAN_WAIT --> QUEUED: Human submits decision
   
-  VERIFYING --> FINALIZING: All obligations evaluated
+  VERIFYING --> FINALIZING: All obligations evaluated & facts derived
   
   FINALIZING --> BLOCKED: Counter-evidence discovered
   FINALIZING --> COMPLETE: All critical obligations VERIFIED
@@ -323,11 +357,13 @@ stateDiagram-v2
   FINALIZING --> INCONCLUSIVE: Budget exhausted / safe abstention
   FINALIZING --> FAILED: System failure
 
-  BLOCKED --> [*]
-  COMPLETE --> [*]
+  BLOCKED --> REVISING_PLAN: Synthesize advisory updated plan
+  COMPLETE --> REVISING_PLAN: Synthesize advisory updated plan
+  INCONCLUSIVE --> REVISING_PLAN: Synthesize advisory updated plan
   HUMAN_DECISION_REQUIRED --> [*]
-  INCONCLUSIVE --> [*]
   FAILED --> [*]
+
+  REVISING_PLAN --> [*]: Persist advisory revised plan v1/v2
 ```
 
 ---
@@ -336,13 +372,14 @@ stateDiagram-v2
 
 PlanProof is not a simple `prompt -> model -> response` wrapper. It is a stateful, resilient agentic system engineered for strict correctness:
 
-1. **LLM-Assisted Atomic Obligation Extraction**: Decomposes high-level plans into structured, testable proof obligations across database schemas, API contracts, symbols, and business rules.
-2. **Durable MongoDB-Owned Workflow State**: State transitions, obligation evaluations, and tool telemetry are persisted directly into MongoDB Atlas. Workflows survive worker restarts and deployments.
-3. **Deterministic Bounded Repository Investigation**: Investigation queries are planned deterministically from extracted identifiers and hints, executing against immutable snapshot files with strict bounds.
-4. **Server-Owned Evidence Authority**: Models propose obligations, but evidence records and cryptographic SHA-256 hashes are minted exclusively by deterministic backend code after audited tool runs.
-5. **Async Redis/Dramatiq Worker Execution**: Long-running verification runs execute asynchronously in dedicated worker processes, decoupled from web API requests.
-6. **Provider Retry & Fallback**: Automatic failover from OpenRouter to AIMLAPI prevents provider outages from breaking customer verification runs.
-7. **Persisted HITL Pause + Requeue/Resumption**: When codebase authority is insufficient, the system pauses execution cleanly in `HUMAN_WAIT` and re-enters the graph upon human input without losing prior findings.
+1. **Semantic Role Decomposition**: Decomposes candidate plans into structured, testable proof obligations across database schemas, API contracts, symbols, and business rules, strictly separating future proposed actions from present-state facts.
+2. **Durable MongoDB-Owned Workflow State**: State transitions, obligation evaluations, authorized facts, and tool telemetry are persisted directly into MongoDB Atlas. Workflows survive worker restarts and deployments.
+3. **Deterministic Bounded Repository Investigation**: Investigation queries are proposed by models and authorized deterministically by backend code, executing against immutable snapshot files with strict bounds.
+4. **Server-Owned Evidence Authority**: Evidence records and cryptographic SHA-256 hashes are minted exclusively by deterministic backend code after audited tool runs.
+5. **Authorized Facts Boundary**: Canonical facts represent immutable present-state truths and cannot semantically expand beyond proved propositions.
+6. **Async Redis/Dramatiq Worker Execution**: Long-running verification runs execute asynchronously in dedicated worker processes, decoupled from web API requests.
+7. **Provider Retry & Fallback**: Automatic failover from OpenRouter to AIMLAPI prevents provider outages from breaking customer verification runs.
+8. **Persisted HITL Pause + Requeue/Resumption**: When codebase authority is insufficient, the system pauses execution cleanly in `HUMAN_WAIT` and re-enters the graph upon human input without losing prior findings.
 
 ---
 
@@ -350,18 +387,20 @@ PlanProof is not a simple `prompt -> model -> response` wrapper. It is a statefu
 
 PlanProof enforces strict separation of concerns between model proposals and deterministic authority:
 
-| Concern | Model Authority? | Deterministic Owner | Enforcement Mechanism |
+| Concern | Authority Status | Deterministic Owner | Enforcement Mechanism |
 | :--- | :---: | :--- | :--- |
-| **Claim Decomposition** | Proposes | Server Validator | Pydantic schema validation, statement normalization, deduplication |
-| **Investigation Query Planning** | No (Deterministic) | Server Query Planner | Extracts exact identifiers, quoted tokens, and paths from statements and hints |
-| **Repository Facts** | No | Deterministic Tools | Python stdlib `ast.parse`, TS/JS regex symbol extraction, and lexical search |
-| **Evidence Minting** | No | `EvidenceAuthority` | Issued only on successful tool run; binds snapshot SHA, line range, and content hash |
-| **Evidence Relevance / Sufficiency** | No | Deterministic Evaluator | Validates real source snippet against atomic proposition before issuing evidence |
-| **Snapshot Identity** | No | Backend Ingestion | Project-scoped immutable Git commit SHA resolution |
-| **Investigation Budgets** | No | Runtime Settings | Hard limits on iterations, tool calls, model calls, and context bytes |
-| **Obligation Status** | No | Deterministic Policy | Rule-based evaluator assigns `VERIFIED`, `DISPROVED`, `INCONCLUSIVE`, or `HUMAN_REQUIRED` |
-| **Final Plan Gate** | No | Gate Policy Evaluator | Deterministic state machine computes `COMPLETE`, `BLOCKED`, `INCONCLUSIVE`, or `HUMAN_DECISION_REQUIRED` |
-| **Business / Intent Authority** | No | Human Stakeholder | Persisted human decision record resumes workflow |
+| **Claim Decomposition** | Proposal | Server Validator | Pydantic schema validation, semantic role assignment, deduplication |
+| **Investigation Query Planning** | Proposal | Server Query Planner | Model proposes queries; server deterministically authorizes within budget |
+| **Repository Facts** | **AUTHORITATIVE** | Deterministic Tools | Python stdlib `ast.parse`, TS/JS regex symbol extraction, exact line ranges |
+| **Evidence Minting** | **AUTHORITATIVE** | `EvidenceAuthority` | Issued only on successful tool run; binds snapshot SHA, line range, and content hash |
+| **Evidence Relevance / Sufficiency** | **AUTHORITATIVE** | Deterministic Evaluator | Validates real source snippet against atomic proposition before issuing evidence |
+| **Authorized Facts (`AuthorizedFact`)** | **AUTHORITATIVE** | Server Fact Engine | Canonical facts derived strictly from `VERIFIED`/`DISPROVED` evidence or human decisions; **cannot semantically expand beyond proved proposition** |
+| **Snapshot Identity** | **AUTHORITATIVE** | Backend Ingestion | Project-scoped immutable Git commit SHA resolution |
+| **Investigation Budgets** | **AUTHORITATIVE** | Runtime Settings | Hard limits on iterations, tool calls, model calls, and context bytes |
+| **Obligation Status** | **AUTHORITATIVE** | Deterministic Policy | Rule-based evaluator assigns `VERIFIED`, `DISPROVED`, `INCONCLUSIVE`, or `HUMAN_REQUIRED` |
+| **Final Plan Gate** | **AUTHORITATIVE** | Gate Policy Evaluator | Deterministic state machine computes `COMPLETE`, `BLOCKED`, `INCONCLUSIVE`, or `HUMAN_DECISION_REQUIRED` |
+| **Business / Intent Authority** | **AUTHORITATIVE** | Human Stakeholder | Persisted human decision record resumes workflow |
+| **Updated Implementation Plan** | **ADVISORY** | Plan Revision Engine | Evidence-grounded advisory model output validated by server against authorized facts |
 
 ### Clearly Distinguished Outcome Taxonomy
 
@@ -425,11 +464,11 @@ PlanProof intentionally uses a single, durable orchestrator rather than an auton
 3. **Simplified Resumption & Persistence**: Persisting a single state machine across worker restarts and human interruptions in MongoDB is robust and verifiable.
 4. **Direct Fast-Path Resolution**: Many obligations are resolved by deterministic validators without invoking an LLM at all.
 
-### Why Exact Symbol Indexing (Not Premature Vector RAG)?
+### Why Indexed Symbols + Exact Source Evidence (Not Premature Vector RAG)?
 
 1. **Exact Codebase Truth**: Code verification requires exact symbol definitions, paths, source ranges, and content-hash provenance. Semantic vector similarity frequently returns false positives that lack syntactic authority.
 2. **Cryptographic Provenance**: Evidence must be verifiable against exact SHA-256 hashes of source files in immutable snapshots.
-3. **Zero Embedding Latency/Cost**: AST and lexical indexing are computed once during repository ingestion in milliseconds.
+3. **Zero Embedding Latency/Cost**: AST, regex symbol indexing, and lexical indexing are computed once during repository ingestion in milliseconds.
 
 ---
 
@@ -447,6 +486,8 @@ PlanProof avoids ephemeral in-memory state. State is categorized cleanly across 
   - `verification_runs`: Run lifecycle status, budgets, and token accounting.
   - `proof_obligations`: Normalized claims, assigned statuses, and evidence links.
   - `evidence`: Server-issued evidence records with cryptographic provenance.
+  - `authorized_facts`: Canonical server-derived present-state facts.
+  - `revised_plans`: Evidence-grounded advisory updated implementation plans.
   - `tool_runs`: Audit logs of every tool execution with input hashes and latency.
   - `model_calls`: Audit logs of provider, model, latency, and token metrics.
   - `human_questions`: Persisted authority questions, required actors, and answers.
@@ -514,13 +555,14 @@ PlanProof is fully deployed and validated on Google Cloud Platform:
   - API: `https://planproof-api-lfrrer4z6q-el.a.run.app` (Cloud Run `asia-south1`)
   - Worker Pool: `planproof-worker` (Cloud Run Worker Pool in `asia-south1`)
   - Memorystore: Private VPC Redis instance
-  - MongoDB Atlas: `planproofapp` cluster with 14 operational collections
+  - MongoDB Atlas: `planproofapp` cluster with 15 operational collections
 - **Live GitHub App Smoke Passed**: Authenticated GitHub App sessions verified with least-privilege read-only permissions.
 - **Production E2E Validation Passed**: Complete pre-flight verification workflow validated:
   - Repository selection and immutable snapshot creation (`READY`).
-  - Obligation extraction and deterministic tool execution.
+  - Obligation extraction, semantic role decomposition, and deterministic tool execution.
   - Human question pause (`HUMAN_WAIT`) and successful resumption.
   - Final authoritative `BLOCKED` gate enforcement backed by real counter-evidence.
+  - Evidence-grounded advisory updated implementation plan synthesis.
 
 ---
 
@@ -644,10 +686,11 @@ Current main is validated in GitHub Actions with:
 | **Symbol Parsers** | [`apps/api/app/ingestion/parsers.py`](apps/api/app/ingestion/parsers.py) | Python `ast.parse` symbol extraction and lightweight TS/JS token extraction. |
 | **Deterministic Tools** | [`apps/api/app/services/repository_tools.py`](apps/api/app/services/repository_tools.py) | `list_files`, `search_code_lexical`, `read_file_range`, `find_symbol`, and `find_references`. |
 | **Evidence Authority** | [`apps/api/app/services/evidence.py`](apps/api/app/services/evidence.py) | Server-side evidence issuance, source range validation, and cryptographic hash verification. |
+| **Revision Engine** | [`apps/api/app/services/revision.py`](apps/api/app/services/revision.py) | Authorized facts derivation, invariant verification, and advisory updated plan synthesis. |
 | **Verification Engine** | [`apps/api/app/workflow/engine.py`](apps/api/app/workflow/engine.py) | Single-orchestrator LangGraph state machine, tool dispatching, HITL questions, and gate policy. |
 | **Worker Task** | [`apps/api/app/workflow/worker.py`](apps/api/app/workflow/worker.py) | Dramatiq actor entrypoint processing verification jobs from Redis. |
 | **Model Gateway** | [`apps/api/app/services/models.py`](apps/api/app/services/models.py) | OpenRouter primary with automatic AIMLAPI fallback, JSON schema validation, and exponential backoff. |
-| **Mongo Collections** | [`apps/api/app/db/indexes.py`](apps/api/app/db/indexes.py) | Idempotent index definitions across all 14 MongoDB Atlas collections. |
+| **Mongo Collections** | [`apps/api/app/db/indexes.py`](apps/api/app/db/indexes.py) | Idempotent index definitions across all 15 MongoDB Atlas collections. |
 | **Evaluation Suite** | [`evals/cases/v1/`](evals/cases/v1/) | 27 versioned evaluation cases testing schema, contracts, idempotency, security, and budgets. |
 | **Workspace Dashboard** | [`app/workspace/page.tsx`](app/workspace/page.tsx) | Next.js 16 workspace cockpit showing repositories, snapshots, and recent verification runs. |
 | **Run Cockpit** | [`app/workspace/runs/[runId]/page.tsx`](app/workspace/runs/[runId]/page.tsx) | Real-time verification run view with obligations, evidence viewer, tool traces, and HITL decision cards. |
@@ -758,7 +801,7 @@ See [docs/DEMO.md](docs/DEMO.md) for the complete script.
 | :--- | :--- | :--- | :--- |
 | **Deterministic Validators First** | Run AST & lexical checks before LLM | LLM-only reasoning | Deterministic code is 100x faster, zero-cost, and completely free from hallucination. |
 | **Orchestration Model** | Single LangGraph state machine | Autonomous multi-agent swarm | Multi-agent swarms lack causal auditability and suffer from compounding token latency. |
-| **Code Retrieval** | AST symbol indexing + lexical search | Vector semantic embeddings | Verification requires exact syntax and cryptographic line provenance, not fuzzy semantic similarity. |
+| **Code Retrieval** | Indexed symbols + lexical search | Vector semantic embeddings | Verification requires exact syntax and cryptographic line provenance, not fuzzy semantic similarity. |
 | **Repository State** | Immutable commit snapshots | Dynamic `HEAD` branch polling | Branch mutations during investigation invalidate evidence provenance. |
 | **Evidence Authority** | Server-issued evidence records | Model-asserted proof quotes | Prevents models from fabricating evidence or misquoting source lines. |
 | **Execution Boundary** | Asynchronous Dramatiq workers | Synchronous HTTP request loop | Verification jobs can take 30+ seconds; long HTTP requests risk timeouts and worker exhaustion. |
