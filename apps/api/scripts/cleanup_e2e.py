@@ -40,8 +40,7 @@ async def cleanup(project_name: str) -> int:
             item["id"] async for item in database.plan_versions.find({"project_id": project_id})
         ]
         runs = [
-            item["id"]
-            async for item in database.verification_runs.find({"project_id": project_id})
+            item["id"] async for item in database.verification_runs.find({"project_id": project_id})
         ]
 
         if runs:

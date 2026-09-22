@@ -85,7 +85,12 @@ async def extract(
     repo = VerificationRepository(mongo)
     service = ObligationExtractionService(ProviderGateway(get_settings(), repo), repo)
     return await service.extract(
-        plan.project_id, snapshot.id, plan.id, plan.change_request, plan.candidate_plan
+        plan.project_id,
+        snapshot.id,
+        plan.id,
+        plan.change_request,
+        plan.candidate_plan,
+        normalized_steps=plan.normalized_steps,
     )
 
 

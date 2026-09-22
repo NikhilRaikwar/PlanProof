@@ -251,6 +251,63 @@ class PlanRevisionService:
         else:
             final_status = RevisedPlanStatus.PROVISIONAL
 
+        # Collect allowed context to enforce output fidelity boundary
+        allowed_corpus_parts = [
+            plan_version.change_request,
+            plan_version.candidate_plan,
+        ]
+        for s in plan_version.normalized_steps:
+            allowed_corpus_parts.append(s.text)
+        for f in facts:
+            allowed_corpus_parts.append(f.canonical_fact)
+            allowed_corpus_parts.extend(f.file_paths)
+            allowed_corpus_parts.extend(f.symbols)
+        if valid_fact_evidence_ids:
+            cursor_ev = self.database.evidence.find({"id": {"$in": list(valid_fact_evidence_ids)}})
+            async for ev_doc in cursor_ev:
+                if ev_doc.get("snippet"):
+                    allowed_corpus_parts.append(ev_doc["snippet"])
+                if ev_doc.get("summary"):
+                    allowed_corpus_parts.append(ev_doc["summary"])
+        allowed_grounding_corpus = " ".join(allowed_corpus_parts).lower()
+
+        def _check_output_fidelity(text: str) -> list[str]:
+            violations = []
+            env_matches = re.findall(
+                r"\b(?:VITE_|REACT_APP_|NEXT_PUBLIC_|[A-Z0-9_]{3,}_(?:NAME|KEY|SECRET|TOKEN|URL|APP|ID|AUTH|API|ENV))\b",
+                text,
+            )
+            for env in env_matches:
+                if env.lower() not in allowed_grounding_corpus:
+                    violations.append(f"ungrounded environment variable '{env}'")
+
+            concrete_techs = [
+                "jwt",
+                "json web token",
+                "oauth",
+                "auth0",
+                "clerk",
+                "firebase",
+                "supabase",
+                "cognito",
+                "nextauth",
+                "passport",
+                "lucia",
+                "zustand",
+                "redux",
+                "mobx",
+                "recoil",
+                "graphql",
+                "grpc",
+                "prisma",
+                "drizzle",
+            ]
+            for tech in concrete_techs:
+                if re.search(rf"\b{re.escape(tech)}\b", text, re.IGNORECASE):
+                    if tech.lower() not in allowed_grounding_corpus:
+                        violations.append(f"unrequested concrete technology '{tech.upper()}'")
+            return violations
+
         # 5. Invoke model synthesis if gateway is available
         model_call_id: str | None = None
         plan_changes: list[PlanChange] = []
@@ -290,19 +347,20 @@ class PlanRevisionService:
 
             system_instruction = (
                 "You are an expert engineering reviewer. Synthesize an evidence-grounded updated implementation plan.\n"
-                "CRITICAL SEMANTIC RULES:\n"
+                "CRITICAL OUTPUT-FIDELITY & SEMANTIC RULES:\n"
                 "1. Distinguish present repository state from planned future actions. NEVER state that a proposed replacement "
                 "or new component already exists in the repository unless verified in authorized_facts.\n"
                 "2. `existing_target_files`: MUST list only verified snapshot files that currently exist in the repository.\n"
                 "3. `proposed_new_files`: MUST list any new files that need to be created.\n"
                 "4. `existing_target_symbols`: MUST list only symbol identifiers (classes, functions, hooks, components) that currently exist in the repository snapshot. NEVER put file paths in existing_target_symbols.\n"
-                "5. `proposed_new_symbols`: MUST list any new symbols to be created/introduced (e.g., 'CustomAuthProvider', 'useAuth').\n"
+                "5. `proposed_new_symbols`: MUST list any new symbols to be created/introduced (e.g., 'AuthProvider', 'useAuth').\n"
                 "6. `unresolved_dependency_ids`: MUST list any unresolved dependencies or obligations lacking repository evidence.\n"
                 "7. Fact Grounding: Every PlanChange with KEEP, MODIFY, or REMOVE concerning current repository state MUST cite a valid `basis_fact_id` from authorized_facts or a valid human_decision_id.\n"
                 "8. Absence Invariant: Absence of evidence is NOT evidence of absence. If a target file or symbol is unresolved/inconclusive, do NOT claim 'file does not exist' or mark REMOVE unless an explicit AuthorizedFact establishes that negative fact. State: 'The candidate plan\\'s <target> target was not established by the verified snapshot evidence. Resolve the actual implementation target before implementation.' and mark UNRESOLVED.\n"
                 "9. ADD may be proposed without present-state basis facts, but must not pretend the artifact exists today.\n"
                 "10. If a step relies on unverified dependencies or requires human authority, mark confidence_basis as UNRESOLVED.\n"
-                "11. Disproved Target Absence: If an AuthorizedFact with relationship CONTRADICTS establishes that an assumed target path does not exist in the snapshot manifest, do NOT claim the file currently exists and do NOT prescribe modifying an absent file. Instead, emit an advisory action stating that the submitted target path is not present in the verified snapshot, and guide the engineer to create the new module at the proposed path or locate the intended existing module before implementation. Do NOT put absent files in existing_target_files; list them in proposed_new_files if creation is intended."
+                "11. Disproved Target Absence: If an AuthorizedFact with relationship CONTRADICTS establishes that an assumed target path does not exist in the snapshot manifest, do NOT claim the file currently exists and do NOT prescribe modifying an absent file. Instead, emit an advisory action stating that the submitted target path is not present in the verified snapshot, and guide the engineer to create the new module at the proposed path or locate the intended existing module before implementation. Do NOT put absent files in existing_target_files; list them in proposed_new_files if creation is intended.\n"
+                "12. OUTPUT FIDELITY BOUNDARY: Do NOT invent unrequested concrete technologies, libraries, auth protocols (e.g., JWT, OAuth, Clerk, Auth0), environment variables (e.g., VITE_APP_NAME), or files not mentioned in the submitted candidate plan or verified in authorized_facts. Use only the names and concepts provided in the candidate plan (e.g., application-owned auth provider, useAuth hook)."
             )
 
             response: ModelRevisedPlanResponse | None = None
@@ -335,7 +393,7 @@ class PlanRevisionService:
                     if not candidate_response:
                         break
 
-                    # Validate candidate response structured fields against snapshot
+                    # Validate candidate response structured fields against snapshot and output fidelity
                     validation_issues = []
                     for step in candidate_response.implementation_plan:
                         for fpath in step.existing_target_files:
@@ -354,6 +412,10 @@ class PlanRevisionService:
                                 validation_issues.append(
                                     f"Symbol '{clean_sym}' in step {step.order} was listed in existing_target_symbols, but is not verified in the snapshot. Move new/unverified symbols to proposed_new_symbols."
                                 )
+                        # Output fidelity checks
+                        step_text = f"{step.action} {step.rationale} {' '.join(step.proposed_new_files)} {' '.join(step.proposed_new_symbols)}"
+                        for v in _check_output_fidelity(step_text):
+                            validation_issues.append(f"Step {step.order} has {v}")
 
                     for change in candidate_response.plan_changes:
                         ctype_str = change.change_type.upper()
@@ -374,6 +436,11 @@ class PlanRevisionService:
                                 validation_issues.append(
                                     f"Plan change for step '{change.source_plan_step_ids}' with change_type '{ctype_str}' asserts a fact ('{change.rationale}') without citing any valid basis_fact_ids. Mark as UNRESOLVED without claiming absence unless an authoritative negative fact exists."
                                 )
+                        change_text = f"{change.rationale} {change.updated_text or ''}"
+                        for v in _check_output_fidelity(change_text):
+                            validation_issues.append(
+                                f"Plan change for step {change.source_plan_step_ids} has {v}"
+                            )
 
                     if validation_issues and attempt < max_attempts:
                         validation_error = "; ".join(validation_issues)
@@ -512,10 +579,16 @@ class PlanRevisionService:
 
                         # Handle ungrounded/invalid steps (strictly using valid_step_human_ids)
                         unresolved_deps = list(raw_step.unresolved_dependency_ids)
-                        if step_has_invalid_existing_file or (
-                            not valid_fact_ids
-                            and not valid_step_human_ids
-                            and stype not in {PlanChangeType.ADD, PlanChangeType.UNRESOLVED}
+                        step_text = f"{raw_step.action} {raw_step.rationale} {' '.join(suggested_files)} {' '.join(proposed_symbols)}"
+                        step_fid_violations = _check_output_fidelity(step_text)
+                        if (
+                            step_has_invalid_existing_file
+                            or step_fid_violations
+                            or (
+                                not valid_fact_ids
+                                and not valid_step_human_ids
+                                and stype not in {PlanChangeType.ADD, PlanChangeType.UNRESOLVED}
+                            )
                         ):
                             stype = PlanChangeType.UNRESOLVED
 

@@ -73,6 +73,27 @@ class InMemoryCollection:
         self.docs.append(d)
         return type("Result", (), {"inserted_id": d.get("_id")})()
 
+    async def insert_many(self, docs: list[dict]):
+        for doc in docs:
+            await self.insert_one(doc)
+        return type("Result", (), {"inserted_ids": [d.get("id") for d in docs]})()
+
+    async def delete_many(self, query: dict):
+        remaining = []
+        deleted_count = 0
+        for d in self.docs:
+            match = True
+            for k, v in query.items():
+                if d.get(k) != v:
+                    match = False
+                    break
+            if match:
+                deleted_count += 1
+            else:
+                remaining.append(d)
+        self.docs = remaining
+        return type("Result", (), {"deleted_count": deleted_count})()
+
     async def find_one(self, query: dict, sort=None):
         res = await self._filter(query)
         return copy.deepcopy(res[0]) if res else None
@@ -481,3 +502,236 @@ async def test_fail_closed_path_membership_evidence_authority():
             summary="absence",
         )
     assert "not authorized to issue path membership evidence" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_obligation_extraction_derives_must_exist_from_candidate_plan_and_blocks_gate():
+    from unittest.mock import AsyncMock
+
+    from app.core.config import Settings
+    from app.domain.common import new_id
+    from app.domain.runs import (
+        PathKind,
+        SnapshotManifestEntry,
+    )
+    from app.repositories.runs import RunRepository
+    from app.repositories.verification import VerificationRepository
+    from app.services.models import ModelResult
+    from app.services.obligations import ObligationExtractionService
+    from app.workflow.engine import VerificationWorkflow
+
+    test_db = InMemoryDatabase()
+    run_repo = RunRepository(test_db)
+    ver_repo = VerificationRepository(test_db)
+    settings = Settings(verification_max_tool_calls=10)
+
+    project_id = f"proj-{new_id()[:8]}"
+    snapshot_id = f"snap-{new_id()[:8]}"
+    plan_version_id = f"pv-{new_id()[:8]}"
+    run_id = f"run-{new_id()[:8]}"
+
+    candidate_plan_str = "Update src/auth/AuthProvider.tsx to expose AuthProvider and useAuth."
+
+    # Setup plan version
+    plan_ver = PlanVersion(
+        id=plan_version_id,
+        project_id=project_id,
+        version=1,
+        change_request="Expose AuthProvider and useAuth",
+        candidate_plan=candidate_plan_str,
+    )
+    await run_repo.create_plan_version(plan_ver)
+
+    # Setup ready snapshot with complete manifest lacking src/auth/AuthProvider.tsx
+    snapshot = RepositorySnapshot(
+        id=snapshot_id,
+        project_id=project_id,
+        repository_identity="test/aelix",
+        parser_version="1.0.0",
+        index_version="1.0.0",
+        status=SnapshotStatus.READY,
+        files_indexed=1,
+        root_content_hash="roothash123",
+        manifest_complete=True,
+        manifest_entry_count=1,
+        manifest_hash="roothash123",
+    )
+    await run_repo.create_snapshot(snapshot)
+
+    manifest_entries = [
+        SnapshotManifestEntry(
+            snapshot_id=snapshot_id,
+            path="src/App.tsx",
+            git_mode="100644",
+            object_type="blob",
+            object_sha="blobsha1",
+            path_kind=PathKind.REGULAR_BLOB,
+        )
+    ]
+    await run_repo.replace_manifest(snapshot_id, manifest_entries)
+
+    # Setup Mock ModelGateway that OMITS the existence prerequisite
+    mock_gateway = AsyncMock()
+    mock_gateway.complete.return_value = ModelResult(
+        provider="mock",
+        model="mock-model",
+        content='{"obligations":[{"statement":"Expose AuthProvider and useAuth for the application.","semantic_role":"PROPOSED_ACTION","category":"SYMBOL","criticality":"HIGH","verification_hints":["AuthProvider","useAuth"]}]}',
+        latency_ms=10,
+        retry_count=0,
+        prompt_tokens=10,
+        completion_tokens=10,
+    )
+
+    extraction_service = ObligationExtractionService(mock_gateway, ver_repo)
+    extracted_obs = await extraction_service.extract(
+        project_id=project_id,
+        snapshot_id=snapshot_id,
+        plan_version_id=plan_version_id,
+        change_request="Expose AuthProvider and useAuth",
+        plan=candidate_plan_str,
+        normalized_steps=plan_ver.normalized_steps,
+        run_id=run_id,
+    )
+
+    # Assert server derived the prerequisite
+    prereq_obs = [
+        ob
+        for ob in extracted_obs
+        if ob.statement == "src/auth/AuthProvider.tsx exists in the current snapshot."
+    ]
+    assert len(prereq_obs) == 1
+    prereq_ob = prereq_obs[0]
+    assert prereq_ob.semantic_role == SemanticRole.EXISTING_DEPENDENCY
+    assert prereq_ob.source_plan_step_ids == ["step-1"]
+
+    # Now execute verification workflow
+    run = VerificationRun(
+        id=run_id,
+        project_id=project_id,
+        snapshot_id=snapshot_id,
+        plan_version_id=plan_version_id,
+        status=VerificationRunStatus.QUEUED,
+    )
+    await run_repo.create_run(run)
+
+    workflow = VerificationWorkflow(run_repo, ver_repo, settings)
+    await workflow.run(run_id)
+
+    updated_prereq = await ver_repo.get_obligation(prereq_ob.id)
+    updated_run = await run_repo.get_run(run_id)
+
+    # Prerequisite MUST be DISPROVED because path is absent from complete snapshot manifest
+    assert updated_prereq.status == ObligationStatus.DISPROVED
+    assert len(updated_prereq.counter_evidence_ids) >= 1
+
+    # Deterministic Gate MUST be naturally BLOCKED
+    assert updated_run.status == VerificationRunStatus.BLOCKED
+
+
+@pytest.mark.asyncio
+async def test_create_does_not_derive_must_exist():
+    from unittest.mock import AsyncMock
+
+    from app.repositories.verification import VerificationRepository
+    from app.services.models import ModelResult
+    from app.services.obligations import ObligationExtractionService
+
+    test_db = InMemoryDatabase()
+    ver_repo = VerificationRepository(test_db)
+
+    create_plan_str = "Create src/auth/AuthProvider.tsx to expose AuthProvider and useAuth."
+
+    mock_gateway = AsyncMock()
+    mock_gateway.complete.return_value = ModelResult(
+        provider="mock",
+        model="mock-model",
+        content='{"obligations":[{"statement":"Create src/auth/AuthProvider.tsx to expose AuthProvider and useAuth.","semantic_role":"PROPOSED_ACTION","category":"SYMBOL","criticality":"HIGH","verification_hints":["src/auth/AuthProvider.tsx"]}]}',
+        latency_ms=10,
+        retry_count=0,
+        prompt_tokens=10,
+        completion_tokens=10,
+    )
+
+    extraction_service = ObligationExtractionService(mock_gateway, ver_repo)
+    extracted_obs = await extraction_service.extract(
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version_id="pv-1",
+        change_request="Create auth provider",
+        plan=create_plan_str,
+        run_id="run-1",
+    )
+
+    prereq_obs = [ob for ob in extracted_obs if "exists in the current snapshot" in ob.statement]
+    assert len(prereq_obs) == 0
+
+
+@pytest.mark.asyncio
+async def test_submodule_child_returns_insufficient():
+    from app.domain.runs import PathKind, SnapshotManifestEntry
+    from app.domain.verification import ToolRun, ToolRunStatus, ValidatorResult
+    from app.repositories.runs import RunRepository
+    from app.repositories.verification import VerificationRepository
+    from app.services.evidence import EvidenceAuthority, validate_file_exists
+
+    test_db = InMemoryDatabase()
+    run_repo = RunRepository(test_db)
+    ver_repo = VerificationRepository(test_db)
+
+    snapshot_id = "snap-submodule"
+    snapshot = RepositorySnapshot(
+        id=snapshot_id,
+        project_id="proj-sub",
+        repository_identity="test/submodule",
+        parser_version="1.0.0",
+        index_version="1.0.0",
+        status=SnapshotStatus.READY,
+        files_indexed=0,
+        root_content_hash="roothash",
+        manifest_complete=True,
+        manifest_entry_count=1,
+        manifest_hash="manifesthash",
+    )
+    await run_repo.create_snapshot(snapshot)
+
+    # Submodule gitlink at vendor/sublib
+    manifest_entries = [
+        SnapshotManifestEntry(
+            snapshot_id=snapshot_id,
+            path="vendor/sublib",
+            git_mode="160000",
+            object_type="commit",
+            object_sha="submodulesha",
+            path_kind=PathKind.SUBMODULE_GITLINK,
+        )
+    ]
+    await run_repo.replace_manifest(snapshot_id, manifest_entries)
+
+    # validate_file_exists on child under submodule gitlink MUST return INSUFFICIENT, not CONTRADICTED
+    result = await validate_file_exists(ver_repo, snapshot_id, "vendor/sublib/src/util.ts")
+    assert result == ValidatorResult.INSUFFICIENT
+
+    # issue_path_membership must reject negative evidence for inconclusive submodule child
+    tool_run = ToolRun(
+        id="tool-check-path-1",
+        snapshot_id=snapshot_id,
+        tool_name="check_path_membership",
+        status=ToolRunStatus.SUCCEEDED,
+        input_hash="hash",
+        duration_ms=1,
+    )
+    await ver_repo.create_tool_run(tool_run)
+    authority = EvidenceAuthority(ver_repo)
+
+    with pytest.raises(ValueError) as exc:
+        await authority.issue_path_membership(
+            snapshot_id=snapshot_id,
+            tool_run_id=tool_run.id,
+            path="vendor/sublib/src/util.ts",
+            present=False,
+            summary="absence under submodule",
+        )
+    assert (
+        "cannot issue conclusive membership evidence for inconclusive or submodule child path"
+        in str(exc.value)
+    )

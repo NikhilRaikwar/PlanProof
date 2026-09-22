@@ -776,6 +776,7 @@ class VerificationWorkflow:
                     run.plan_version_id,
                     plan.change_request,
                     plan.candidate_plan,
+                    normalized_steps=plan.normalized_steps,
                     run_id=run.id,
                 )
                 run.model_call_count += 1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -53,9 +54,17 @@ def classify_target_intent(statement: str) -> TargetIntent:
     - UNKNOWN: Ambiguous phrasing
     """
     s = statement.strip().lower()
-    if "create or update" in s or "create and update" in s or "create and then update" in s:
+    if (
+        "create or update" in s
+        or "create and update" in s
+        or "create and then update" in s
+        or "add or update" in s
+        or "add and update" in s
+    ):
         return TargetIntent.CREATE_OR_UPDATE
-    if "introduce" in s and ("modify" in s or "update" in s):
+    if ("introduce" in s or "create" in s or "add" in s) and (
+        "modify" in s or "update" in s or "replace" in s or "delete" in s or "remove" in s
+    ):
         return TargetIntent.CREATE_OR_UPDATE
     if s.startswith("do not ") or "don't " in s:
         return TargetIntent.UNKNOWN
@@ -96,6 +105,7 @@ class ObligationProposal(BaseModel):
     category: ObligationCategory = ObligationCategory.UNKNOWN
     criticality: Criticality = Criticality.MEDIUM
     verification_hints: list[str] = Field(default_factory=list, max_length=5)
+    source_plan_step_ids: list[str] = Field(default_factory=list)
 
 
 class ObligationProposals(BaseModel):
@@ -113,8 +123,39 @@ class ObligationExtractionService:
         plan_version_id: str,
         change_request: str,
         plan: str,
+        normalized_steps: list[Any] | None = None,
         run_id: str | None = None,
     ) -> list[ProofObligation]:
+        from app.domain.runs import normalize_candidate_plan_steps
+
+        # 1. Deterministic MUST_EXIST derivation from original candidate plan steps
+        if normalized_steps is None:
+            steps_to_analyze = normalize_candidate_plan_steps(plan)
+        else:
+            steps_to_analyze = normalized_steps
+
+        derived_prerequisites: dict[str, ObligationProposal] = {}
+        for step in steps_to_analyze:
+            intent = classify_target_intent(step.text)
+            if intent == TargetIntent.MUST_EXIST:
+                paths = _extract_canonical_paths_from_text(step.text)
+                for path in paths:
+                    prereq_stmt = f"{path} exists in the current snapshot."
+                    key = prereq_stmt.strip().casefold()
+                    if key in derived_prerequisites:
+                        if step.id not in derived_prerequisites[key].source_plan_step_ids:
+                            derived_prerequisites[key].source_plan_step_ids.append(step.id)
+                    else:
+                        derived_prerequisites[key] = ObligationProposal(
+                            statement=prereq_stmt,
+                            semantic_role=SemanticRole.EXISTING_DEPENDENCY,
+                            category=ObligationCategory.DEPENDENCY,
+                            criticality=Criticality.HIGH,
+                            verification_hints=[path],
+                            source_plan_step_ids=[step.id],
+                        )
+
+        # 2. Extract semantic obligations via model gateway
         req = ModelRequest(
             system=(
                 "You are PlanProof's formal obligation extractor. Decompose candidate plans into "
@@ -147,10 +188,7 @@ class ObligationExtractionService:
             result = await self.gateway.complete(req)
         proposals = ObligationProposals.model_validate(parse_json_object(result.content))
 
-        # Check for implied MUST_EXIST prerequisite dependencies on proposed actions
-        derived_prerequisites: list[ObligationProposal] = []
-        all_proposed_statements = {p.statement.strip().casefold() for p in proposals.obligations}
-
+        # Check model proposals for additional implied MUST_EXIST prerequisites
         for proposal in proposals.obligations:
             if proposal.semantic_role == SemanticRole.PROPOSED_ACTION:
                 intent = classify_target_intent(proposal.statement)
@@ -160,22 +198,43 @@ class ObligationExtractionService:
                     )
                     for path in paths:
                         prereq_stmt = f"{path} exists in the current snapshot."
-                        if prereq_stmt.casefold() not in all_proposed_statements:
-                            all_proposed_statements.add(prereq_stmt.casefold())
-                            derived_prerequisites.append(
-                                ObligationProposal(
-                                    statement=prereq_stmt,
-                                    semantic_role=SemanticRole.EXISTING_DEPENDENCY,
-                                    category=ObligationCategory.DEPENDENCY,
-                                    criticality=Criticality.HIGH,
-                                    verification_hints=[path],
-                                )
+                        key = prereq_stmt.strip().casefold()
+                        if key not in derived_prerequisites:
+                            derived_prerequisites[key] = ObligationProposal(
+                                statement=prereq_stmt,
+                                semantic_role=SemanticRole.EXISTING_DEPENDENCY,
+                                category=ObligationCategory.DEPENDENCY,
+                                criticality=Criticality.HIGH,
+                                verification_hints=[path],
+                                source_plan_step_ids=list(proposal.source_plan_step_ids),
                             )
 
-        combined_proposals = list(proposals.obligations) + derived_prerequisites
+        # Merge model proposals and server-derived prerequisites, deduplicating
+        final_proposals: list[ObligationProposal] = []
+        emitted_keys = set()
+
+        for proposal in proposals.obligations:
+            key = proposal.statement.strip().casefold()
+            if key in derived_prerequisites:
+                prereq = derived_prerequisites[key]
+                combined_step_ids = list(
+                    dict.fromkeys(prereq.source_plan_step_ids + proposal.source_plan_step_ids)
+                )
+                prereq.source_plan_step_ids = combined_step_ids
+                if key not in emitted_keys:
+                    emitted_keys.add(key)
+                    final_proposals.append(prereq)
+            else:
+                emitted_keys.add(key)
+                final_proposals.append(proposal)
+
+        for key, prereq in derived_prerequisites.items():
+            if key not in emitted_keys:
+                emitted_keys.add(key)
+                final_proposals.append(prereq)
 
         output = []
-        for proposal in combined_proposals:
+        for proposal in final_proposals:
             normalized = re.sub(r"\s+", " ", proposal.statement.strip().casefold())
             metadata = {
                 "provider": result.provider,
@@ -193,6 +252,7 @@ class ObligationExtractionService:
                         snapshot_id=snapshot_id,
                         plan_version_id=plan_version_id,
                         run_id=run_id,
+                        source_plan_step_ids=proposal.source_plan_step_ids,
                         statement=proposal.statement,
                         normalized_statement=normalized,
                         semantic_role=proposal.semantic_role,

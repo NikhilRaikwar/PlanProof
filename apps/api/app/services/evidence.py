@@ -4,6 +4,51 @@ from app.domain.verification import Evidence, EvidenceType, ToolRunStatus, Valid
 from app.repositories.verification import VerificationRepository
 
 
+async def _inspect_path_manifest_state(
+    database, snapshot_id: str, path: str
+) -> tuple[str, dict | None]:
+    """
+    Recompute authoritative state for path membership against the snapshot manifest:
+    Returns (PRESENT | ABSENT | INCONCLUSIVE, snapshot_doc)
+    """
+    snapshots_col = getattr(database, "repository_snapshots", None)
+    snapshot = await snapshots_col.find_one({"id": snapshot_id}) if snapshots_col else None
+    if not snapshot or snapshot.get("status") != "READY":
+        return "INCONCLUSIVE", snapshot
+
+    manifest_col = getattr(database, "snapshot_manifest", None)
+    if manifest_col is not None:
+        entry = await manifest_col.find_one({"snapshot_id": snapshot_id, "path": path})
+        if entry is not None:
+            return "PRESENT", snapshot
+
+        # Inspect submodule ancestor
+        parts = path.strip("/").split("/")
+        candidate_prefixes = ["/".join(parts[:i]) for i in range(1, len(parts))]
+        if candidate_prefixes:
+            submodule_ancestor = await manifest_col.find_one(
+                {
+                    "snapshot_id": snapshot_id,
+                    "path": {"$in": candidate_prefixes},
+                    "path_kind": "submodule_gitlink",
+                }
+            )
+            if submodule_ancestor is not None:
+                return "INCONCLUSIVE", snapshot
+
+    # If repository_files contains it (fallback)
+    repo_files_col = getattr(database, "repository_files", None)
+    if repo_files_col is not None:
+        file_doc = await repo_files_col.find_one({"snapshot_id": snapshot_id, "path": path})
+        if file_doc is not None:
+            return "PRESENT", snapshot
+
+    if snapshot.get("manifest_complete"):
+        return "ABSENT", snapshot
+
+    return "INCONCLUSIVE", snapshot
+
+
 class EvidenceAuthority:
     """Only deterministic tool runs may issue evidence with source provenance."""
 
@@ -80,9 +125,24 @@ class EvidenceAuthority:
                 "tool run is not authorized to issue path membership evidence for this snapshot"
             )
 
-        snapshot = await self.repository.database.repository_snapshots.find_one({"id": snapshot_id})
+        state, snapshot = await _inspect_path_manifest_state(
+            self.repository.database, snapshot_id, path
+        )
         if not snapshot or snapshot.get("status") != "READY":
             raise ValueError("snapshot is not ready for path membership evidence")
+
+        if state == "PRESENT":
+            if not present or relationship == "CONTRADICTS":
+                raise ValueError("cannot issue negative membership evidence for present path")
+            target_relationship = relationship or "SUPPORTS"
+        elif state == "ABSENT":
+            if present or relationship == "SUPPORTS":
+                raise ValueError("cannot issue positive membership evidence for absent path")
+            target_relationship = relationship or "CONTRADICTS"
+        else:
+            raise ValueError(
+                "cannot issue conclusive membership evidence for inconclusive or submodule child path"
+            )
 
         manifest_hash = snapshot.get("manifest_hash") or snapshot.get("root_content_hash")
 
@@ -96,7 +156,7 @@ class EvidenceAuthority:
                 path=path,
                 content_hash=manifest_hash,
                 matched_query=path,
-                relationship=relationship or ("SUPPORTS" if present else "CONTRADICTS"),
+                relationship=target_relationship,
                 summary=summary,
             )
         )
@@ -119,8 +179,8 @@ class EvidenceAuthority:
         if evidence.evidence_type == EvidenceType.SNAPSHOT_PATH_MEMBERSHIP:
             if tool_run.tool_name != "check_path_membership":
                 raise ValueError("tool cannot issue snapshot path membership evidence")
-            snapshot = await self.repository.database.repository_snapshots.find_one(
-                {"id": evidence.snapshot_id}
+            state, snapshot = await _inspect_path_manifest_state(
+                self.repository.database, evidence.snapshot_id, evidence.path
             )
             if not snapshot or snapshot.get("status") != "READY":
                 raise ValueError("snapshot is not ready for path membership validation")
@@ -134,9 +194,13 @@ class EvidenceAuthority:
                     "snapshot manifest hash does not match persisted manifest authority"
                 )
 
-            if evidence.relationship == "CONTRADICTS" and not snapshot.get("manifest_complete"):
+            if state == "PRESENT" and evidence.relationship != "SUPPORTS":
+                raise ValueError("path is present but evidence relationship is not SUPPORTS")
+            elif state == "ABSENT" and evidence.relationship != "CONTRADICTS":
+                raise ValueError("path is absent but evidence relationship is not CONTRADICTS")
+            elif state == "INCONCLUSIVE":
                 raise ValueError(
-                    "cannot validate negative path membership evidence without complete manifest"
+                    "cannot validate conclusive path membership evidence for inconclusive state"
                 )
 
             return evidence
@@ -174,24 +238,11 @@ async def validate_symbol_exists(
 async def validate_file_exists(
     repository: VerificationRepository, snapshot_id: str, path: str
 ) -> ValidatorResult:
-    manifest_col = getattr(repository.database, "snapshot_manifest", None)
-    if manifest_col is not None:
-        manifest_entry = await manifest_col.find_one({"snapshot_id": snapshot_id, "path": path})
-        if manifest_entry is not None:
-            return ValidatorResult.SATISFIED
-
-    repo_files_col = getattr(repository.database, "repository_files", None)
-    if repo_files_col is not None:
-        item = await repo_files_col.find_one({"snapshot_id": snapshot_id, "path": path})
-        if item is not None:
-            return ValidatorResult.SATISFIED
-
-    snapshots_col = getattr(repository.database, "repository_snapshots", None)
-    if snapshots_col is not None:
-        snapshot = await snapshots_col.find_one({"id": snapshot_id})
-        if snapshot and snapshot.get("manifest_complete"):
-            return ValidatorResult.CONTRADICTED
-
+    state, snapshot = await _inspect_path_manifest_state(repository.database, snapshot_id, path)
+    if state == "PRESENT":
+        return ValidatorResult.SATISFIED
+    elif state == "ABSENT":
+        return ValidatorResult.CONTRADICTED
     return ValidatorResult.INSUFFICIENT
 
 
