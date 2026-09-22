@@ -1,27 +1,32 @@
-<p align="center">
-  <img src="public/logodesign.png" alt="PlanProof Logo" width="620" />
-</p>
+<div align="center">
+
+<img src="public/logodesign.png" alt="PlanProof Logo" width="580" />
 
 # PlanProof
 
-> **Engineering plans are hypotheses. PlanProof tests them before agents build them.**
+### *Pre-flight verification for AI-generated engineering plans.*
 
-PlanProof is a pre-flight verification system for AI-generated software engineering plans. It binds a candidate plan to an immutable repository snapshot, extracts testable proof obligations, gathers code-backed evidence using bounded deterministic tools, escalates authority gaps to humans, and computes an authoritative **Plan Gate** before implementation begins.
+**Engineering plans are hypotheses. PlanProof tests them before agents build them.**
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-planproof.nikhilraikwar.me-FF4D2E?style=for-the-badge&logo=googlecloud&logoColor=white)](https://planproof.nikhilraikwar.me)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16.3-black?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2+-FF4D2E?style=flat-square&logo=diagram&logoColor=white)](https://langchain-ai.github.io/langgraph/)
+[![Google Cloud Run](https://img.shields.io/badge/GCP-Cloud_Run-4285F4?style=flat-square&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
+[![MongoDB Atlas](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
+[![Redis](https://img.shields.io/badge/Redis-Memorystore-DC382D?style=flat-square&logo=redis&logoColor=white)](https://cloud.google.com/memorystore)
 
 ```text
        The model proposes; deterministic code authorizes.
        LLMs for ambiguity; deterministic software for authority.
 ```
 
----
+[**Live Web App**](https://planproof.nikhilraikwar.me) • [**Architecture**](docs/ARCHITECTURE.md) • [**Security**](docs/SECURITY.md) • [**Evaluations**](docs/EVALUATIONS.md) • [**GCP Deployment**](docs/DEPLOYMENT_GCP.md)
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Next.js 16](https://img.shields.io/badge/Next.js-16.3-black?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.2+-FF4D2E?style=flat-square&logo=diagram&logoColor=white)](https://langchain-ai.github.io/langgraph/)
-[![MongoDB Atlas](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
-[![Redis / Memorystore](https://img.shields.io/badge/Redis-Memorystore-DC382D?style=flat-square&logo=redis&logoColor=white)](https://cloud.google.com/memorystore)
-[![Google Cloud Run](https://img.shields.io/badge/GCP-Cloud_Run-4285F4?style=flat-square&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
+</div>
+
+---
 
 **Live Production Deployment**:
 - **Branded Web UI**: [https://planproof.nikhilraikwar.me](https://planproof.nikhilraikwar.me) (Firebase CDN front door → Cloud Run `asia-south1`)
@@ -153,6 +158,27 @@ flowchart TD
     FinalGate -->|All Satisfied| Verified[VERIFIED_FOR_EXECUTION]
     FinalGate -->|Ambiguous / Exhausted| Inconclusive[INCONCLUSIVE]
   end
+
+  style Repo fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style Snapshot fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
+  style Plan fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style LLMExtract fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
+  style LLMToolSelect fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
+  style ValidateObligations fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style FastValidators fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style PolicyCheck fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style FinalGate fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafe
+  style RepTools fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style ToolAllowlist fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style ToolRun fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style EvidenceIssuer fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style Evidence fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
+  style Obligations fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style HumanWait fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f
+  style HumanInput fill:#fffbeb,stroke:#d97706,stroke-width:1.5px,color:#78350f
+  style Blocked fill:#fef2f2,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
+  style Verified fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
+  style Inconclusive fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#475569
 ```
 
 ---
@@ -192,6 +218,20 @@ flowchart TD
   ApplyPolicy -->|Contradiction| Disproved[Mark DISPROVED]
   ApplyPolicy -->|Satisfied| Verified[Mark VERIFIED]
   ApplyPolicy -->|Inconclusive| BoundedLoop
+
+  style Start fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style LLMAction fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
+  style CheckCat fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style CheckBudget fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style SchemaValidate fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style ExecuteTool fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style IssueEvidence fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style ValidateProvenance fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px,color:#0369a1
+  style ApplyPolicy fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style HumanState fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f
+  style Disproved fill:#fef2f2,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
+  style Verified fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
+  style InconclusiveState fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#475569
 ```
 
 ---
@@ -237,6 +277,17 @@ flowchart LR
   Worker -.-> Secrets
   Worker --> OpenRouter
   OpenRouter -.->|Fallback on 5xx| AIMLAPI
+
+  style Web fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1
+  style API fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+  style Worker fill:#0f172a,stroke:#a855f7,stroke-width:2px,color:#f8fafc
+  style Redis fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#991b1b
+  style Secrets fill:#fdf4ff,stroke:#c084fc,stroke-width:2px,color:#6b21a8
+  style Atlas fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
+  style OpenRouter fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
+  style AIMLAPI fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#9a3412
+  style User fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+  style GitHub fill:#f8fafc,stroke:#24292f,stroke-width:1.5px,color:#0f172a
 ```
 
 ---
