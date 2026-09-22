@@ -10,6 +10,7 @@ import {
   CheckCircle2, 
   Clock, 
   Code2, 
+  Copy,
   FileText, 
   FolderGit2, 
   GitBranch, 
@@ -17,11 +18,12 @@ import {
   Layers3, 
   ShieldAlert, 
   ShieldCheck, 
+  Sparkles,
   Terminal, 
   Wrench, 
   XCircle 
 } from 'lucide-react'
-import { api, ApiError, Evidence, Obligation, RunProjection } from '@/lib/api'
+import { api, ApiError, Evidence, Obligation, RevisedPlan, RunProjection } from '@/lib/api'
 import { useWorkspace } from '@/components/workspace-context'
 
 const terminalStatuses = new Set(['COMPLETE', 'BLOCKED', 'INCONCLUSIVE', 'FAILED'])
@@ -47,6 +49,8 @@ export default function RunReportPage() {
   const [projection, setProjection] = useState<RunProjection | null>(null)
   const [obligations, setObligations] = useState<Obligation[]>([])
   const [evidence, setEvidence] = useState<Evidence[]>([])
+  const [revisedPlan, setRevisedPlan] = useState<RevisedPlan | null>(null)
+  const [copiedPlan, setCopiedPlan] = useState(false)
   const [events, setEvents] = useState<string[]>([])
   const [streamState, setStreamState] = useState<'connecting' | 'live' | 'reconnecting'>('connecting')
   const [answerMap, setAnswerMap] = useState<Record<string, string>>({})
@@ -56,14 +60,16 @@ export default function RunReportPage() {
 
   const load = async () => {
     try {
-      const [p, o, e] = await Promise.all([
+      const [p, o, e, r] = await Promise.all([
         api.run(runId), 
         api.obligations(runId), 
-        api.evidence(runId)
+        api.evidence(runId),
+        api.revisedPlan(runId).catch(() => null)
       ])
       setProjection(p)
       setObligations(o)
       setEvidence(e)
+      setRevisedPlan(r)
       setError('')
     } catch (x) {
       if (!projection) {
@@ -159,6 +165,30 @@ export default function RunReportPage() {
 
   const openQuestions = projection.human_questions.filter(q => q.status === 'OPEN')
   const answeredQuestions = projection.human_questions.filter(q => q.status === 'ANSWERED')
+
+  const handleCopyUpdatedPlan = async () => {
+    if (!revisedPlan || !revisedPlan.implementation_plan) return
+    const text = `# Updated Implementation Plan (v${revisedPlan.revision_version})\n\n` +
+      `**Status**: ${revisedPlan.status}\n\n` +
+      `## Executive Summary\n${revisedPlan.executive_summary || 'Plan updated based on immutable repository evidence.'}\n\n` +
+      `## Ordered Implementation Steps\n\n` +
+      revisedPlan.implementation_plan.map(s => (
+        `### Step ${s.order}: ${s.action}\n` +
+        (s.existing_target_files?.length ? `**Target Existing Files**:\n${s.existing_target_files.map(f => `- \`${f}\``).join('\n')}\n\n` : '') +
+        (s.proposed_new_files?.length ? `**Proposed New Files**:\n${s.proposed_new_files.map(f => `- \`${f}\` (new)`).join('\n')}\n\n` : '') +
+        (s.target_symbols?.length ? `**Target Symbols**:\n${s.target_symbols.map(sym => `- \`${sym}\``).join('\n')}\n\n` : '') +
+        `**Rationale**:\n${s.rationale}\n\n` +
+        (s.basis_fact_ids?.length ? `*Basis Facts*: ${s.basis_fact_ids.join(', ')}\n` : '')
+      )).join('\n\n')
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedPlan(true)
+      setTimeout(() => setCopiedPlan(false), 2000)
+    } catch {
+      // ignore clipboard error
+    }
+  }
 
   return (
     <div style={{ display: 'grid', gap: 20 }}>
@@ -596,6 +626,303 @@ export default function RunReportPage() {
                 </div>
               )
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Updated Implementation Plan Section */}
+      <div id="updated-implementation-plan" className="card-panel-white">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ width: 28, height: 28, borderRadius: 6, background: '#FFF7ED', border: '1px solid #FFEDD5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Sparkles size={16} color="#EA580C" />
+              </div>
+              <strong style={{ fontSize: 16, color: '#0F172A' }}>
+                Updated Implementation Plan
+              </strong>
+              {revisedPlan && (
+                <span className="commit-mini-tag" style={{ background: '#F1F5F9', color: '#475569', fontWeight: 600 }}>
+                  v{revisedPlan.revision_version}
+                </span>
+              )}
+              {revisedPlan && (
+                <span 
+                  className="badge-pill-base" 
+                  style={{
+                    fontSize: 11,
+                    background: revisedPlan.status === 'EVIDENCE_GROUNDED' ? '#ECFDF5' : revisedPlan.status === 'AWAITING_HUMAN_DECISION' ? '#FEF3C7' : revisedPlan.status === 'PROVISIONAL' ? '#F0F9FF' : '#F1F5F9',
+                    color: revisedPlan.status === 'EVIDENCE_GROUNDED' ? '#065F46' : revisedPlan.status === 'AWAITING_HUMAN_DECISION' ? '#92400E' : revisedPlan.status === 'PROVISIONAL' ? '#075985' : '#475569',
+                    borderColor: revisedPlan.status === 'EVIDENCE_GROUNDED' ? '#A7F3D0' : revisedPlan.status === 'AWAITING_HUMAN_DECISION' ? '#FDE68A' : revisedPlan.status === 'PROVISIONAL' ? '#BAE6FD' : '#CBD5E1',
+                  }}
+                >
+                  {revisedPlan.status.replaceAll('_', ' ')}
+                </span>
+              )}
+            </div>
+            <span style={{ fontSize: 12.5, color: '#64748B' }}>
+              Evidence-grounded implementation steps synthesized from verified immutable repository facts.
+            </span>
+          </div>
+
+          {revisedPlan && revisedPlan.status !== 'UNAVAILABLE' && (
+            <button
+              type="button"
+              className="btn-verify-plan-cta"
+              style={{ fontSize: 12, padding: '7px 14px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              onClick={() => void handleCopyUpdatedPlan()}
+            >
+              {copiedPlan ? (
+                <>
+                  <Check size={14} /> Copied!
+                </>
+              ) : (
+                <>
+                  <Copy size={14} /> Copy Updated Plan
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {!revisedPlan ? (
+          <div style={{ padding: 16, borderRadius: 8, background: '#F8FAFC', border: '1px solid #E2E8F0', fontSize: 12.5, color: '#64748B' }}>
+            Updated implementation plan synthesis is available on newly executed verification runs. The deterministic Gate Report above contains all verified repository facts.
+          </div>
+        ) : revisedPlan.status === 'UNAVAILABLE' ? (
+          <div style={{ padding: 16, borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: 12.5 }}>
+            <strong style={{ display: 'block', marginBottom: 4 }}>Plan Revision Unavailable</strong>
+            Model revision synthesis did not satisfy strict evidence citation invariants or provider gateway limits. The deterministic Gate Report above remains 100% authoritative.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 18 }}>
+            {/* Status Notice if Awaiting Human Decision */}
+            {revisedPlan.status === 'AWAITING_HUMAN_DECISION' && (
+              <div style={{ padding: 12, borderRadius: 6, background: '#FFFBEB', border: '1px solid #FDE68A', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#92400E' }}>
+                <Clock size={15} color="#D97706" />
+                <span>
+                  <strong>Preliminary Draft (v{revisedPlan.revision_version}):</strong> Plan synthesized before human decision resolution. A final revision will be generated once all open questions are answered.
+                </span>
+              </div>
+            )}
+
+            {/* Metrics Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+              <div style={{ padding: '10px 14px', borderRadius: 6, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Total Steps</span>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#0F172A', marginTop: 2 }}>{revisedPlan.implementation_plan?.length || 0}</div>
+              </div>
+              <div style={{ padding: '10px 14px', borderRadius: 6, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Retained</span>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#334155', marginTop: 2 }}>
+                  {revisedPlan.implementation_plan?.filter(s => s.status === 'KEEP').length || 0}
+                </div>
+              </div>
+              <div style={{ padding: '10px 14px', borderRadius: 6, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: 11, color: '#D97706', fontWeight: 600, textTransform: 'uppercase' }}>Modified</span>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#D97706', marginTop: 2 }}>
+                  {revisedPlan.implementation_plan?.filter(s => s.status === 'MODIFY').length || 0}
+                </div>
+              </div>
+              <div style={{ padding: '10px 14px', borderRadius: 6, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: 11, color: '#DC2626', fontWeight: 600, textTransform: 'uppercase' }}>Removed</span>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#DC2626', marginTop: 2 }}>
+                  {revisedPlan.plan_changes?.filter(c => c.change_type === 'REMOVE').length || 0}
+                </div>
+              </div>
+              <div style={{ padding: '10px 14px', borderRadius: 6, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: 11, color: '#16A34A', fontWeight: 600, textTransform: 'uppercase' }}>Added</span>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#16A34A', marginTop: 2 }}>
+                  {revisedPlan.implementation_plan?.filter(s => s.status === 'ADD').length || 0}
+                </div>
+              </div>
+            </div>
+
+            {/* Executive Summary */}
+            {revisedPlan.executive_summary && (
+              <div style={{ padding: 14, borderRadius: 6, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                <strong style={{ fontSize: 12, color: '#0F172A', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Revision Summary
+                </strong>
+                <p style={{ fontSize: 13, color: '#334155', margin: 0, lineHeight: 1.5 }}>
+                  {revisedPlan.executive_summary}
+                </p>
+              </div>
+            )}
+
+            {/* Plan Changes / Diffs */}
+            {revisedPlan.plan_changes && revisedPlan.plan_changes.length > 0 && (
+              <div style={{ display: 'grid', gap: 10 }}>
+                <strong style={{ fontSize: 13, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Plan Modifications &amp; Rationale ({revisedPlan.plan_changes.length})
+                </strong>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {revisedPlan.plan_changes.map((chg, idx) => {
+                    const isRemoved = chg.change_type === 'REMOVE'
+                    const isModified = chg.change_type === 'MODIFY'
+                    const isAdded = chg.change_type === 'ADD'
+                    const bg = isRemoved ? '#FEF2F2' : isModified ? '#FFFBEB' : isAdded ? '#F0FDF4' : '#F8FAFC'
+                    const border = isRemoved ? '#FECACA' : isModified ? '#FDE68A' : isAdded ? '#BBF7D0' : '#E2E8F0'
+                    const tagBg = isRemoved ? '#FEE2E2' : isModified ? '#FEF3C7' : isAdded ? '#DCFCE7' : '#E2E8F0'
+                    const tagColor = isRemoved ? '#991B1B' : isModified ? '#92400E' : isAdded ? '#166534' : '#475569'
+
+                    return (
+                      <div key={idx} style={{ padding: 12, borderRadius: 6, background: bg, border: `1px solid ${border}`, display: 'grid', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A' }}>
+                            {chg.source_plan_step_ids?.length ? `Step ${chg.source_plan_step_ids.join(', ')}: ` : ''}
+                            {chg.updated_text ? chg.updated_text.slice(0, 80) : chg.original_text ? chg.original_text.slice(0, 80) : 'Step Modification'}
+                          </span>
+                          <span className="badge-pill-base" style={{ fontSize: 10, background: tagBg, color: tagColor, borderColor: 'transparent' }}>
+                            {chg.change_type}
+                          </span>
+                        </div>
+
+                        {chg.original_text && isModified && (
+                          <div style={{ fontSize: 12, color: '#64748B', background: 'rgba(0,0,0,0.02)', padding: '6px 8px', borderRadius: 4 }}>
+                            <span style={{ fontWeight: 600 }}>Original:</span> {chg.original_text}
+                          </div>
+                        )}
+
+                        <p style={{ fontSize: 12.5, color: '#334155', margin: 0 }}>
+                          <strong>Rationale:</strong> {chg.rationale}
+                        </p>
+
+                        {chg.basis_fact_ids && chg.basis_fact_ids.length > 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                            <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600 }}>Cites Facts:</span>
+                            {chg.basis_fact_ids.map(fid => (
+                              <span key={fid} className="commit-mini-tag" style={{ background: '#FFFFFF', border: '1px solid #CBD5E1', fontSize: 10.5 }}>
+                                {fid.slice(0, 10)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Ordered Implementation Steps */}
+            {revisedPlan.implementation_plan && revisedPlan.implementation_plan.length > 0 && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <strong style={{ fontSize: 13, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Ordered Implementation Steps ({revisedPlan.implementation_plan.length})
+                </strong>
+
+                <div style={{ display: 'grid', gap: 12 }}>
+                  {revisedPlan.implementation_plan.map((step) => (
+                    <div 
+                      key={step.order} 
+                      style={{ 
+                        padding: 16, 
+                        borderRadius: 8, 
+                        background: '#FFFFFF', 
+                        border: '1px solid #E2E8F0',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                        display: 'grid',
+                        gap: 10,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span 
+                            style={{ 
+                              width: 24, 
+                              height: 24, 
+                              borderRadius: '50%', 
+                              background: '#EA580C', 
+                              color: '#FFFFFF', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              fontSize: 12, 
+                              fontWeight: 700 
+                            }}
+                          >
+                            {step.order}
+                          </span>
+                          <strong style={{ fontSize: 13.5, color: '#0F172A' }}>
+                            {step.action}
+                          </strong>
+                        </div>
+
+                        {step.status && (
+                          <span className="badge-pill-base" style={{ fontSize: 10, background: '#F1F5F9', color: '#475569' }}>
+                            {step.status}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* File Target Badges */}
+                      {((step.existing_target_files && step.existing_target_files.length > 0) || (step.proposed_new_files && step.proposed_new_files.length > 0)) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {step.existing_target_files?.map(f => (
+                            <span 
+                              key={f} 
+                              className="commit-mini-tag" 
+                              style={{ 
+                                background: '#F0FDF4', 
+                                color: '#166534', 
+                                borderColor: '#BBF7D0', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: 4, 
+                                fontSize: 11 
+                              }}
+                            >
+                              <FileText size={11} color="#16A34A" /> {f}
+                            </span>
+                          ))}
+                          {step.proposed_new_files?.map(f => (
+                            <span 
+                              key={f} 
+                              className="commit-mini-tag" 
+                              style={{ 
+                                background: '#EFF6FF', 
+                                color: '#1E40AF', 
+                                borderColor: '#BFDBFE', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: 4, 
+                                fontSize: 11 
+                              }}
+                            >
+                              + {f} (new)
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Step Rationale */}
+                      {step.rationale && (
+                        <div style={{ fontSize: 12.5, color: '#334155', lineHeight: 1.5, background: '#F8FAFC', padding: 10, borderRadius: 6, border: '1px solid #F1F5F9' }}>
+                          {step.rationale}
+                        </div>
+                      )}
+
+                      {/* Basis Facts Cited */}
+                      {step.basis_fact_ids && step.basis_fact_ids.length > 0 && (
+                        <div style={{ display: 'grid', gap: 4, paddingTop: 6, borderTop: '1px dashed #E2E8F0' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#94A3B8' }}>
+                            Cites Verified Evidence ({step.basis_fact_ids.length})
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            {step.basis_fact_ids.map(fid => (
+                              <span key={fid} className="commit-mini-tag" style={{ background: '#FFFFFF', border: '1px solid #CBD5E1', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <ShieldCheck size={12} color="#16A34A" /> {fid.slice(0, 12)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

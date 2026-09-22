@@ -17,6 +17,7 @@ class RunRepository:
     """Persistence adapter for immutable plans, snapshots, runs, and append-only run events."""
 
     def __init__(self, mongo: MongoManager) -> None:
+        self._mongo = mongo
         self._database = mongo.database()
 
     async def create_snapshot(self, snapshot: RepositorySnapshot) -> RepositorySnapshot:
@@ -77,6 +78,12 @@ class RunRepository:
             )
 
     async def create_plan_version(self, plan_version: PlanVersion) -> PlanVersion:
+        if not plan_version.normalized_steps:
+            from app.domain.runs import normalize_candidate_plan_steps
+
+            plan_version.normalized_steps = normalize_candidate_plan_steps(
+                plan_version.candidate_plan
+            )
         try:
             await self._database.plan_versions.insert_one(plan_version.model_dump(mode="python"))
         except DuplicateKeyError as exc:

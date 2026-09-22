@@ -4,7 +4,7 @@ import asyncio
 import json
 import random
 import time
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 from pydantic import BaseModel, Field
@@ -15,8 +15,8 @@ from app.repositories.verification import VerificationRepository
 
 
 class ModelRequest(BaseModel):
-    system: str = Field(max_length=4000)
-    user: str = Field(max_length=12000)
+    system: str = Field(max_length=8000)
+    user: str = Field(max_length=32000)
     schema_version: str = "v1"
 
 
@@ -38,11 +38,19 @@ class ModelGateway(Protocol):
 
 class ProviderGateway:
     def __init__(
-        self, settings: Settings, repository: VerificationRepository | None = None
+        self,
+        settings: Settings,
+        verification: VerificationRepository | None = None,
     ) -> None:
-        self.settings, self.repository = settings, repository
+        self.settings = settings
+        self.verification = verification
 
-    async def complete(self, request: ModelRequest, run_id: str | None = None) -> ModelResult:
+    async def complete(
+        self,
+        request: ModelRequest,
+        run_id: str | None = None,
+        purpose: str | None = None,
+    ) -> ModelResult:
         try:
             result = await self._attempt(
                 "openrouter",
@@ -51,7 +59,9 @@ class ProviderGateway:
                 self.settings.openrouter_primary_model,
                 request,
             )
-        except (httpx.TimeoutException, httpx.TransportError, ProviderUnavailable, RuntimeError):
+        except Exception:
+            if not self.settings.aimlapi_api_key:
+                raise
             result = await self._attempt(
                 "aimlapi",
                 self.settings.aimlapi_base_url,
@@ -60,12 +70,13 @@ class ProviderGateway:
                 request,
                 fallback=True,
             )
-        if self.repository:
-            await self.repository.create_model_call(
+        if self.verification:
+            await self.verification.create_model_call(
                 ModelCall(
                     run_id=run_id,
                     provider=result.provider,
                     model=result.model,
+                    purpose=purpose or "OBLIGATION_EXTRACTION",
                     request_schema_version=request.schema_version,
                     response_schema_version="v1",
                     latency_ms=result.latency_ms,
@@ -78,27 +89,50 @@ class ProviderGateway:
             )
         return result
 
+    async def complete_structured(
+        self,
+        prompt: str,
+        schema: type[Any],
+        system: str = "",
+        run_id: str | None = None,
+        purpose: str | None = None,
+    ) -> Any:
+        sys_prompt = system or "You are a helpful software verification assistant."
+        if "json" not in sys_prompt.lower():
+            sys_prompt = f"{sys_prompt} Output a valid JSON object."
+        schema_json = json.dumps(schema.model_json_schema())
+        user_prompt = f"{prompt}\n\nReturn a valid JSON object matching this schema:\n{schema_json}"
+        req = ModelRequest(
+            system=sys_prompt[:8000],
+            user=user_prompt[:32000],
+        )
+        result = await self.complete(req, run_id=run_id, purpose=purpose)
+        data = parse_json_object(result.content)
+        return schema.model_validate(data)
+
     async def _attempt(
         self, provider: str, base_url, key, model: str | None, request: ModelRequest, fallback=False
     ) -> ModelResult:
         if not key or not model:
             raise RuntimeError(f"{provider} is not configured")
         started = time.monotonic()
+        payload = {
+            "model": model,
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": request.system},
+                {"role": "user", "content": request.user},
+            ],
+        }
+        if "json" in request.system.lower() or "json" in request.user.lower():
+            payload["response_format"] = {"type": "json_object"}
         for retry in range(2):
             try:
                 async with httpx.AsyncClient(timeout=12) as client:
                     response = await client.post(
                         f"{str(base_url).rstrip('/')}/chat/completions",
                         headers={"Authorization": f"Bearer {key.get_secret_value()}"},
-                        json={
-                            "model": model,
-                            "temperature": 0,
-                            "response_format": {"type": "json_object"},
-                            "messages": [
-                                {"role": "system", "content": request.system},
-                                {"role": "user", "content": request.user},
-                            ],
-                        },
+                        json=payload,
                     )
                 response.raise_for_status()
                 body = response.json()

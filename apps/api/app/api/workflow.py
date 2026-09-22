@@ -10,6 +10,7 @@ from app.api.dependencies import get_mongo, get_settings_dep
 from app.api.github import get_optional_session
 from app.core.config import Settings
 from app.db.mongo import MongoManager
+from app.domain.revised_plans import RevisedPlan
 from app.domain.runs import (
     HumanQuestionStatus,
     PlanVersion,
@@ -19,6 +20,7 @@ from app.domain.runs import (
 )
 from app.domain.verification import ObligationStatus
 from app.repositories.projects import ProjectsRepository
+from app.repositories.revised_plans import RevisedPlansRepository
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
 from app.workflow.worker import execute_verification_run
@@ -197,7 +199,9 @@ async def create_verification_run(
         raise HTTPException(404, "project, snapshot, or plan version not found")
 
     if not session:
-        if str(project.data_scope) == "USER" or project.github_installation_id or project.owner_id:
+        if project.github_installation_id or (
+            project.owner_id and project.owner_id != "local-user"
+        ):
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED, "authentication required to verify project"
             )
@@ -543,3 +547,34 @@ async def accept_amendment(
         parent_plan_version_id=parent.id,
     )
     return await runs.create_plan_version(amended)
+
+
+@router.get(
+    "/verification-runs/{run_id}/revised-plan",
+    response_model=RevisedPlan | None,
+)
+async def get_latest_revised_plan(
+    run_id: str,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
+) -> RevisedPlan | None:
+    session = await get_optional_session(mongo, settings, planproof_session)
+    await _get_authorized_run(run_id, mongo, session)
+    return await RevisedPlansRepository(mongo).get_latest(run_id)
+
+
+@router.get(
+    "/verification-runs/{run_id}/revised-plans",
+    response_model=list[RevisedPlan],
+)
+async def list_revised_plans(
+    run_id: str,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    planproof_session: Annotated[str | None, Cookie()] = None,
+) -> list[RevisedPlan]:
+    session = await get_optional_session(mongo, settings, planproof_session)
+    await _get_authorized_run(run_id, mongo, session)
+    return await RevisedPlansRepository(mongo).list_for_run(run_id)
+

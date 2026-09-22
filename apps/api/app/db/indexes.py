@@ -68,6 +68,16 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("timestamp", DESCENDING)]),
         IndexModel([("case_set_version", ASCENDING), ("timestamp", DESCENDING)]),
     ],
+    "revised_plans": [
+        IndexModel([("run_id", ASCENDING), ("revision_version", ASCENDING)], unique=True),
+        IndexModel([("project_id", ASCENDING), ("created_at", DESCENDING)]),
+    ],
+    "authorized_facts": [
+        IndexModel([("run_id", ASCENDING), ("obligation_id", ASCENDING)]),
+    ],
+    "investigation_plans": [
+        IndexModel([("run_id", ASCENDING), ("created_at", DESCENDING)]),
+    ],
 }
 
 

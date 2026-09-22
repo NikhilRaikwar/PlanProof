@@ -4,6 +4,7 @@ from app.domain.verification import Evidence, ModelCall, ProofObligation, ToolRu
 
 class VerificationRepository:
     def __init__(self, mongo: MongoManager) -> None:
+        self._mongo = mongo
         self.database = mongo.database()
 
     async def create_tool_run(self, item: ToolRun) -> ToolRun:

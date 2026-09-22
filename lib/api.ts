@@ -140,6 +140,51 @@ export type RunPlanContext = {
   change_request: string
 }
 
+export type PlanChange = {
+  id: string
+  change_type: 'KEEP' | 'MODIFY' | 'REMOVE' | 'ADD' | 'UNRESOLVED'
+  source_plan_step_ids: string[]
+  original_text?: string | null
+  updated_text?: string | null
+  rationale: string
+  basis_fact_ids: string[]
+  evidence_ids: string[]
+  human_decision_ids: string[]
+}
+
+export type RevisedPlanStep = {
+  id: string
+  order: number
+  action: string
+  rationale: string
+  status: 'KEEP' | 'MODIFY' | 'REMOVE' | 'ADD' | 'UNRESOLVED'
+  source_plan_step_ids: string[]
+  basis_fact_ids: string[]
+  supporting_obligation_ids: string[]
+  supporting_evidence_ids: string[]
+  supporting_human_decision_ids: string[]
+  unresolved_dependency_ids: string[]
+  existing_target_files: string[]
+  proposed_new_files: string[]
+  target_symbols: string[]
+  confidence_basis: 'EVIDENCE_BACKED' | 'PARTIALLY_EVIDENCED' | 'HUMAN_CONFIRMED' | 'UNRESOLVED'
+}
+
+export type RevisedPlan = {
+  id: string
+  run_id: string
+  project_id: string
+  snapshot_id: string
+  original_plan_version_id: string
+  revision_version: number
+  status: 'EVIDENCE_GROUNDED' | 'PROVISIONAL' | 'AWAITING_HUMAN_DECISION' | 'UNAVAILABLE'
+  executive_summary: string
+  plan_changes: PlanChange[]
+  implementation_plan: RevisedPlanStep[]
+  model_call_id?: string | null
+  created_at: string
+}
+
 export type RunProjection = {
   run: VerificationRun
   repository?: RunRepositoryContext
@@ -195,6 +240,8 @@ export const api = {
   toolRuns: (id: string) => request<ToolRun[]>(`/verification-runs/${id}/tool-runs`),
   answer: (id: string, answer: string) => request<HumanQuestion>(`/human-questions/${id}/answers`, { method: 'POST', body: JSON.stringify({ answer, actor_id: 'local-session' }) }),
   amend: (id: string, candidate_plan: string) => request<PlanVersion>(`/plan-versions/${id}/amendments`, { method: 'POST', body: JSON.stringify({ candidate_plan }) }),
+  revisedPlan: (runId: string) => request<RevisedPlan | null>(`/verification-runs/${runId}/revised-plan`),
+  revisedPlans: (runId: string) => request<RevisedPlan[]>(`/verification-runs/${runId}/revised-plans`),
   latestEvaluation: () => request<EvaluationRun>('/evaluations/latest'),
   eventsUrl: (id: string) => `${base}/v1/verification-runs/${id}/events`,
 }

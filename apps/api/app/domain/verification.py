@@ -94,6 +94,7 @@ class ProofObligation(BaseModel):
     snapshot_id: str
     plan_version_id: str
     run_id: str | None = None
+    source_plan_step_ids: list[str] = Field(default_factory=list)
     statement: str = Field(min_length=1, max_length=2000)
     normalized_statement: str
     category: ObligationCategory
@@ -109,6 +110,7 @@ class ProofObligation(BaseModel):
 class ModelCall(BaseModel):
     id: str = Field(default_factory=new_id)
     run_id: str | None = None
+    purpose: str | None = None
     provider: str
     model: str
     request_schema_version: str

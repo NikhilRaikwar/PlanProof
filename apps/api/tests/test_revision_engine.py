@@ -1,0 +1,284 @@
+from __future__ import annotations
+
+import pytest
+
+from app.domain.facts import FactRelationship
+from app.domain.investigation import InvestigationAction, InvestigationActionType
+from app.domain.revised_plans import (
+    RevisedPlanStatus,
+)
+from app.domain.runs import OriginalPlanStep, PlanVersion
+from app.domain.verification import (
+    Criticality,
+    ObligationCategory,
+    ObligationStatus,
+    ProofObligation,
+)
+from app.services.investigation_planning import InvestigationPlanningService
+from app.workflow.engine import (
+    _extract_explicit_imported_identifiers,
+    _extract_explicit_paths,
+    check_evidence_relevance,
+    check_evidence_sufficiency,
+)
+
+
+def _make_obligation(
+    id: str,
+    statement: str,
+    category: ObligationCategory = ObligationCategory.SYMBOL,
+    status: ObligationStatus = ObligationStatus.PENDING,
+    claim_type: str = "FILE_EXISTS",
+    evidence_ids: list[str] | None = None,
+    counter_evidence_ids: list[str] | None = None,
+    source_plan_step_ids: list[str] | None = None,
+) -> ProofObligation:
+    return ProofObligation(
+        id=id,
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version_id="pv-1",
+        statement=statement,
+        normalized_statement=statement.lower(),
+        category=category,
+        criticality=Criticality.HIGH,
+        status=status,
+        claim_type=claim_type,
+        evidence_ids=evidence_ids or [],
+        counter_evidence_ids=counter_evidence_ids or [],
+        source_plan_step_ids=source_plan_step_ids or [],
+    )
+
+
+def test_extract_explicit_paths() -> None:
+    ob = _make_obligation("ob-1", "Update app/providers.tsx to include PrivyProvider and wrap components/auth-modal.tsx")
+    paths = _extract_explicit_paths(ob)
+    assert "app/providers.tsx" in paths
+    assert "components/auth-modal.tsx" in paths
+    assert len(paths) == 2
+
+
+def test_extract_explicit_imported_identifiers() -> None:
+    ob = _make_obligation("ob-1", "Verify that PrivyProvider is imported from '@privy-io/react-auth' in app/providers.tsx")
+    identifiers = _extract_explicit_imported_identifiers(ob)
+    assert "PrivyProvider" in identifiers
+
+
+def test_check_evidence_relevance_strict_path() -> None:
+    ob = _make_obligation("ob-1", "Verify PrivyProvider is imported in app/providers.tsx", claim_type="FILE_EXISTS")
+    
+    # Exact path match
+    is_rel = check_evidence_relevance(
+        obligation=ob,
+        path="app/providers.tsx",
+        snippet="import { PrivyProvider } from '@privy-io/react-auth';",
+        matched_query="PrivyProvider",
+    )
+    assert is_rel is True
+
+    # Evidence from another file (e.g. app/dashboard/page.tsx) must NOT be relevant
+    is_mismatch = check_evidence_relevance(
+        obligation=ob,
+        path="app/dashboard/page.tsx",
+        snippet="import { PrivyProvider } from '@privy-io/react-auth';",
+        matched_query="PrivyProvider",
+    )
+    assert is_mismatch is False
+
+
+def test_check_evidence_sufficiency_symbol_and_env() -> None:
+    ob = _make_obligation("ob-1", "Verify PrivyProvider is imported in app/providers.tsx", claim_type="SYMBOL_EXPORTED")
+
+    # Symbol sufficiency: search for PrivyProvider, snippet has usePrivy only -> NOT sufficient
+    is_suff = check_evidence_sufficiency(
+        obligation=ob,
+        path="app/providers.tsx",
+        snippet="import { usePrivy } from '@privy-io/react-auth';",
+        matched_query="usePrivy",
+    )
+    assert is_suff is False
+
+    # Snippet has PrivyProvider imported -> sufficient
+    is_suff_ok = check_evidence_sufficiency(
+        obligation=ob,
+        path="app/providers.tsx",
+        snippet="import { PrivyProvider } from '@privy-io/react-auth';",
+        matched_query="PrivyProvider",
+    )
+    assert is_suff_ok is True
+
+
+class MockAsyncCursor:
+    def __init__(self, docs: list[dict]) -> None:
+        self.docs = docs
+
+    def __aiter__(self):
+        self._iter = iter(self.docs)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+
+class MockCollection:
+    def __init__(self, docs: list[dict] | None = None) -> None:
+        self.docs = docs or []
+
+    def find(self, query: dict, projection: dict | None = None) -> MockAsyncCursor:
+        matched = []
+        for d in self.docs:
+            if "id" in query and "$in" in query["id"]:
+                if d.get("id") in query["id"]["$in"]:
+                    matched.append(d)
+            elif "run_id" in query:
+                if d.get("run_id") == query["run_id"]:
+                    matched.append(d)
+            elif "snapshot_id" in query:
+                if d.get("snapshot_id") == query["snapshot_id"]:
+                    matched.append(d)
+            else:
+                matched.append(d)
+        return MockAsyncCursor(matched)
+
+    async def insert_one(self, doc: dict) -> None:
+        self.docs.append(doc)
+
+
+class MockVerificationRepo:
+    def __init__(self) -> None:
+        class MockDB:
+            evidence = MockCollection([
+                {"id": "ev-1", "path": "app/providers.tsx", "matched_query": "PrivyProvider"},
+                {"id": "ev-2", "path": "app/dashboard/page.tsx", "matched_query": "LegacyAuthProvider"},
+            ])
+            human_questions = MockCollection([])
+            authorized_facts = MockCollection([])
+            repository_files = MockCollection([
+                {"snapshot_id": "snap-1", "path": "app/providers.tsx"},
+                {"snapshot_id": "snap-1", "path": "package.json"},
+            ])
+            revised_plans = MockCollection([])
+        
+        self.database = MockDB()
+        class MockMongo:
+            def database(m_self):
+                return self.database
+        self._mongo = MockMongo()
+
+
+def test_investigation_planning_service_validation() -> None:
+    service = InvestigationPlanningService(gateway=None, verification=MockVerificationRepo())  # type: ignore[arg-type]
+    allowed_files = {"app/providers.tsx", "package.json"}
+    
+    valid_action = InvestigationAction(
+        action_type=InvestigationActionType.INSPECT_EXACT_FILE,
+        path="app/providers.tsx",
+    )
+    assert service.validate_action(valid_action, allowed_files) is not None
+
+    invalid_path_action = InvestigationAction(
+        action_type=InvestigationActionType.INSPECT_EXACT_FILE,
+        path="evil/../../etc/passwd",
+    )
+    assert service.validate_action(invalid_path_action, allowed_files) is None
+
+    non_existent_file_action = InvestigationAction(
+        action_type=InvestigationActionType.INSPECT_EXACT_FILE,
+        path="unknown/path.ts",
+    )
+    assert service.validate_action(non_existent_file_action, allowed_files) is None
+
+
+def test_investigation_planning_service_fallback() -> None:
+    service = InvestigationPlanningService(gateway=None, verification=MockVerificationRepo())  # type: ignore[arg-type]
+    ob = _make_obligation(
+        "ob-1",
+        "Update app/providers.tsx to include PrivyProvider",
+        claim_type="FILE_EXISTS",
+    )
+    intents = service.generate_deterministic_intents(
+        obligations=[ob],
+        snapshot_files={"app/providers.tsx", "package.json"},
+    )
+    assert len(intents) == 1
+    intent = intents[0]
+    assert intent.obligation_id == "ob-1"
+    assert len(intent.proposed_actions) >= 1
+    assert intent.proposed_actions[0].action_type == InvestigationActionType.INSPECT_EXACT_FILE
+    assert intent.proposed_actions[0].path == "app/providers.tsx"
+
+
+@pytest.mark.asyncio
+async def test_plan_revision_fact_derivation_async() -> None:
+    from app.services.revision import PlanRevisionService
+    mock_repo = MockVerificationRepo()
+    service = PlanRevisionService(gateway=None, verification=mock_repo)  # type: ignore[arg-type]
+
+    ob_verified = _make_obligation(
+        "ob-1",
+        "app/providers.tsx exists",
+        status=ObligationStatus.VERIFIED,
+        evidence_ids=["ev-1"],
+    )
+    ob_disproved = _make_obligation(
+        "ob-2",
+        "LegacyAuthProvider exists",
+        status=ObligationStatus.DISPROVED,
+        counter_evidence_ids=["ev-2"],
+    )
+
+    facts = await service.derive_authorized_facts(
+        run_id="run-1",
+        snapshot_id="snap-1",
+        obligations=[ob_verified, ob_disproved],
+    )
+
+    assert len(facts) == 2
+    f1 = next(f for f in facts if f.obligation_id == "ob-1")
+    assert f1.relationship == FactRelationship.SUPPORTS
+    assert "app/providers.tsx" in f1.file_paths
+
+    f2 = next(f for f in facts if f.obligation_id == "ob-2")
+    assert f2.relationship == FactRelationship.CONTRADICTS
+    assert "app/dashboard/page.tsx" in f2.file_paths
+
+
+@pytest.mark.asyncio
+async def test_plan_revision_synthesize_unavailable_when_no_model() -> None:
+    from app.services.revision import PlanRevisionService
+    mock_repo = MockVerificationRepo()
+    service = PlanRevisionService(gateway=None, verification=mock_repo)  # type: ignore[arg-type]
+
+    plan_ver = PlanVersion(
+        id="pv-1",
+        project_id="proj-1",
+        version=1,
+        change_request="Integrate Privy authentication",
+        candidate_plan="1. Update app/providers.tsx with PrivyProvider",
+        normalized_steps=[OriginalPlanStep(id="step-1", order=1, text="Update app/providers.tsx with PrivyProvider")],
+    )
+
+    ob_verified = _make_obligation(
+        "ob-1",
+        "app/providers.tsx exists",
+        status=ObligationStatus.VERIFIED,
+        evidence_ids=["ev-1"],
+    )
+
+    revised_plan = await service.synthesize(
+        run_id="run-1",
+        project_id="proj-1",
+        snapshot_id="snap-1",
+        plan_version=plan_ver,
+        obligations=[ob_verified],
+    )
+
+    # When no model gateway is provided, status must safely become UNAVAILABLE without hallucination
+    assert revised_plan.status == RevisedPlanStatus.UNAVAILABLE
+    assert revised_plan.revision_version == 1
+    assert "unavailable" in revised_plan.executive_summary.lower()
+
+

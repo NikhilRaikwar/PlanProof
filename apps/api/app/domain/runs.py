@@ -56,12 +56,59 @@ class RepositorySnapshot(BaseModel):
     updated_at: datetime = Field(default_factory=now_utc)
 
 
+class OriginalPlanStep(BaseModel):
+    id: str
+    order: int
+    text: str
+
+
+def normalize_candidate_plan_steps(candidate_plan: str) -> list[OriginalPlanStep]:
+    """Parse raw candidate plan text into stable, ordered step objects."""
+    import re
+
+    lines = [line.strip() for line in candidate_plan.strip().splitlines() if line.strip()]
+    steps: list[OriginalPlanStep] = []
+    order = 1
+
+    current_text_parts: list[str] = []
+
+    for line in lines:
+        # Match numbered list (e.g. "1. ", "1) ", "[1] ") or bullet (e.g. "- ", "* ")
+        numbered_match = re.match(r"^(?:\d+[\.\)]|\[\d+\]|\*|\-)\s+(.*)$", line)
+        if numbered_match:
+            if current_text_parts:
+                steps.append(
+                    OriginalPlanStep(
+                        id=f"step-{order}", order=order, text=" ".join(current_text_parts)
+                    )
+                )
+                order += 1
+                current_text_parts = []
+            current_text_parts.append(numbered_match.group(1).strip())
+        else:
+            current_text_parts.append(line)
+
+    if current_text_parts:
+        steps.append(
+            OriginalPlanStep(
+                id=f"step-{order}", order=order, text=" ".join(current_text_parts)
+            )
+        )
+
+    # Fallback if no steps parsed
+    if not steps and candidate_plan.strip():
+        steps = [OriginalPlanStep(id="step-1", order=1, text=candidate_plan.strip())]
+
+    return steps
+
+
 class PlanVersion(BaseModel):
     id: str = Field(default_factory=new_id)
     project_id: str
     version: int = Field(ge=1)
     change_request: str = Field(min_length=1, max_length=20_000)
     candidate_plan: str = Field(min_length=1, max_length=50_000)
+    normalized_steps: list[OriginalPlanStep] = Field(default_factory=list)
     parent_plan_version_id: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
 
