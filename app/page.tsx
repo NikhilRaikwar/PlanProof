@@ -103,7 +103,7 @@ function HeroSection({ connected }: { connected: boolean }) {
 
           {/* Core Subtitle / Description */}
           <motion.p variants={fadeInUp} className="hero-lede-centered">
-            PlanProof checks AI-generated engineering plans against your real codebase snapshots, finds risky assumptions, and returns evidence-backed decisions before implementation begins.
+            PlanProof checks AI-generated engineering plans against an exact repository snapshot, separates proposed changes from current codebase facts, and returns an evidence-grounded implementation plan before coding begins.
           </motion.p>
 
           {/* Action CTAs */}
@@ -146,35 +146,44 @@ function HeroSection({ connected }: { connected: boolean }) {
 }
 
 // -------------------------------------------------------------
-// SCENE 2: CONFIDENCE BEFORE CODE (3 Light Feature Cards)
+// SCENE 2: CONFIDENCE BEFORE CODE (4 Truthful Stages)
 // -------------------------------------------------------------
 const confidenceSteps = [
   {
     number: '01',
-    stepTag: 'ASSUMPTION PARSING',
+    stepTag: 'PLAN DECOMPOSITION',
     icon: FileText,
-    title: 'Extract proof obligations',
-    text: 'Decompose plans into structured claims spanning database schemas, API contracts, dependencies, and business rules.',
-    chips: ['Schemas', 'API Contracts', 'Symbols', 'Dependencies'],
-    footer: 'Step 1 • Obligation Extraction'
+    title: 'Separate facts from proposed changes',
+    text: 'Turn a candidate engineering plan into structured semantic roles: current-state assumptions, existing dependencies, proposed actions, constraints, and human decisions.',
+    chips: ['Present Facts', 'Dependencies', 'Proposed Actions', 'Human Decisions'],
+    footer: 'Stage 1 • Plan Decomposition'
   },
   {
     number: '02',
-    stepTag: 'CODE GROUNDING',
+    stepTag: 'REPOSITORY INVESTIGATION',
     icon: Search,
-    title: 'Gather code-backed evidence',
-    text: 'Inspect repository facts using Python AST symbol extraction, lightweight TS/JS symbol indexing, bounded lexical search, and SHA-256 source provenance.',
-    chips: ['Python AST', 'TS/JS Symbols', 'Lexical Search', 'SHA-256 Provenance'],
-    footer: 'Step 2 • Code Grounding'
+    title: 'Gather repository-backed evidence',
+    text: 'The model may propose what to inspect, but deterministic server-side tools authorize and execute snapshot-scoped investigation.',
+    chips: ['Exact Source', 'Indexed Symbols', 'Lexical Search', 'SHA-256 Provenance'],
+    footer: 'Stage 2 • Repository Investigation'
   },
   {
     number: '03',
-    stepTag: 'AUTOMATED GATE',
+    stepTag: 'DETERMINISTIC PLAN GATE',
     icon: ShieldCheck,
     title: 'Compute the Plan Gate',
-    text: 'Combine evidence-backed obligation outcomes into a passed, blocked, inconclusive, or human-decision state before code generation starts.',
-    chips: ['COMPLETE', 'BLOCKED', 'INCONCLUSIVE', 'HUMAN_REQUIRED'],
-    footer: 'Step 3 • Plan Gate Policy'
+    text: 'Repository evidence determines whether assumptions are verified, contradicted, inconclusive, or require human authority. The model never chooses the final gate.',
+    chips: ['COMPLETE', 'BLOCKED', 'INCONCLUSIVE', 'HUMAN_DECISION_REQUIRED'],
+    footer: 'Stage 3 • Deterministic Gate Policy'
+  },
+  {
+    number: '04',
+    stepTag: 'UPDATED IMPLEMENTATION PLAN',
+    icon: Code2,
+    title: 'Return a grounded plan',
+    text: 'PlanProof keeps, modifies, removes, adds, or marks plan steps unresolved using server-authorized facts, then produces an evidence-grounded advisory plan for the coding agent or developer.',
+    chips: ['KEEP', 'MODIFY', 'REMOVE', 'ADD', 'UNRESOLVED'],
+    footer: 'Stage 4 • Grounded Plan Revision'
   }
 ]
 
@@ -250,7 +259,7 @@ function ConfidenceSection() {
 }
 
 // -------------------------------------------------------------
-// SCENE 3: A SIMPLE VERIFICATION FLOW (5 Step Nodes)
+// SCENE 3: A SIMPLE VERIFICATION FLOW (6 Step Nodes)
 // -------------------------------------------------------------
 const workflowSteps = [
   {
@@ -262,23 +271,23 @@ const workflowSteps = [
     desc: 'Connect your GitHub repository with read-only permissions.'
   },
   {
-    id: 'plan',
+    id: 'snapshot',
     num: '02',
     label: 'Snapshot',
-    sub: 'IMMUTABLE SHA',
+    sub: 'EXACT COMMIT SHA',
     icon: GitBranch,
     desc: 'Resolve target branch to an exact, immutable commit SHA.'
   },
   {
-    id: 'trace',
+    id: 'decompose',
     num: '03',
-    label: 'Extract',
-    sub: 'PROOF OBLIGATIONS',
+    label: 'Decompose',
+    sub: 'PLAN SEMANTICS',
     icon: FileText,
-    desc: 'Decompose the proposed change into testable claims.'
+    desc: 'Decompose the proposed change into structured semantic roles.'
   },
   {
-    id: 'check',
+    id: 'investigate',
     num: '04',
     label: 'Investigate',
     sub: 'BOUNDED EVIDENCE',
@@ -286,12 +295,20 @@ const workflowSteps = [
     desc: 'Gather snapshot-scoped facts through deterministic symbol and lexical inspection tools.'
   },
   {
-    id: 'decide',
+    id: 'gate',
     num: '05',
     label: 'Gate',
-    sub: 'PLAN GATE VERDICT',
+    sub: 'DETERMINISTIC VERDICT',
     icon: ShieldCheck,
-    desc: 'Combine evidence-backed obligation outcomes into a passed, blocked, inconclusive, or human-decision state.'
+    desc: 'Evaluate evidence-backed outcomes into COMPLETE, BLOCKED, INCONCLUSIVE, or HUMAN_DECISION_REQUIRED.'
+  },
+  {
+    id: 'revise',
+    num: '06',
+    label: 'Revise',
+    sub: 'UPDATED PLAN',
+    icon: Code2,
+    desc: 'Synthesize an evidence-grounded advisory plan citing server-authorized facts.'
   }
 ]
 
@@ -317,7 +334,7 @@ function WorkflowSection() {
             A simple <span className="text-gradient-orange">verification</span> flow.
           </h2>
           <p className="scene-subtitle">
-            From raw engineering intent to an authoritative Plan Gate in five bounded, auditable steps.
+            From raw engineering intent to verified repository facts and an evidence-grounded implementation plan through auditable, bounded stages.
           </p>
         </motion.div>
 
@@ -634,7 +651,7 @@ const citableFacts = [
   },
   {
     title: 'Deterministic Repository Tools',
-    text: 'Python AST parsing (ast.parse) and lexical search tools inspect code structure and line ranges within strict containment boundaries.',
+    text: 'Python ast.parse + lightweight TypeScript/JavaScript symbol indexing and lexical search inspect immutable repository snapshots inside strict containment boundaries.',
   },
   {
     title: 'Server-Issued Evidence Authority',
@@ -649,8 +666,8 @@ const citableFacts = [
     text: 'Workflow pauses with HUMAN_REQUIRED when code evidence lacks business authority, and resumes asynchronously upon human input.',
   },
   {
-    title: 'Durable System of Record',
-    text: 'MongoDB Atlas persists domain and run state across worker restarts, with Redis and Dramatiq coordinating async task queues.',
+    title: 'Evidence-Grounded Plan Revision',
+    text: 'After the deterministic gate, a bounded model synthesizes an advisory updated implementation plan using only server-authorized repository facts, verified human decisions, and unresolved dependencies.',
   },
 ]
 
@@ -719,19 +736,19 @@ function BuiltForAgentsSection() {
 const faqs = [
   {
     q: 'What does PlanProof verify?',
-    a: 'PlanProof decomposes plans into proof obligations and checks code-resolvable claims against immutable snapshot evidence, safely abstaining or escalating when evidence is insufficient.',
+    a: 'PlanProof verifies repository-grounded assumptions in AI-generated engineering plans: file and symbol relationships, imports, schemas, routes, configuration, dependencies, and other inspectable code facts. When bounded repository evidence cannot establish a claim, PlanProof safely returns INCONCLUSIVE rather than guessing.',
   },
   {
     q: 'How is PlanProof different from an AI coding agent?',
-    a: 'Coding agents write, modify, and commit code based on a plan. PlanProof is a pre-flight verification system that tests the plan itself before any code is generated or altered, preventing agents from building on flawed foundations.',
+    a: 'PlanProof sits before the coding agent. It does not implement the change. It verifies the proposed plan against an exact repository snapshot and returns an evidence-grounded advisory plan that can be handed to Claude Code, Codex, Cursor, another agent, or a human engineer.',
   },
   {
     q: 'Does PlanProof execute arbitrary repository code?',
-    a: 'No. PlanProof uses Python AST parsing (stdlib ast.parse), lightweight TS/JS symbol extraction, and bounded lexical/static inspection against immutable snapshots. It does not run arbitrary build scripts, test suites, or shell commands.',
+    a: 'No. PlanProof uses Python stdlib ast.parse, lightweight TypeScript/JavaScript symbol extraction, and bounded lexical/static inspection against immutable snapshots. It does not run arbitrary build scripts, test suites, or shell commands.',
   },
   {
     q: 'How does PlanProof prevent an LLM from inventing evidence?',
-    a: 'Only server-issued evidence records backed by successful deterministic tool runs can affect verification status. Model text cannot mint or authorize evidence.',
+    a: 'Model-proposed investigation is strictly non-authoritative. The backend authorizes all tools, evidence IDs and SHA-256 hashes are server-issued, AuthorizedFacts come only from validated evidence or authorized human input, the final Plan Gate is deterministic, and the revised plan cannot make repository facts authoritative by itself.',
   },
   {
     q: 'Why does PlanProof use human-in-the-loop (HITL) decisions?',
@@ -926,7 +943,7 @@ function CtaSection({ connected }: { connected: boolean }) {
 
           <div className="footer-bottom-bar">
             <div className="footer-copyright">
-              © 2026 Nikhil Raikwar · PlanProof is open source under the MIT License.
+              © 2026 Nikhil Raikwar · PlanProof · Open source under the MIT License.
             </div>
 
             <div className="footer-status-pill">
