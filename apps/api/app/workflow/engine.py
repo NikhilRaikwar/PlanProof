@@ -1103,7 +1103,16 @@ class VerificationWorkflow:
                         )
                         return
                 except Exception:
-                    pass
+                    obligation.status = ObligationStatus.INCONCLUSIVE
+                    obligation.proposal_metadata["inconclusive_reason"] = (
+                        "Exact path membership authority failed safely"
+                    )
+                    await self._event(
+                        run.id,
+                        "obligation_completed",
+                        "Obligation became INCONCLUSIVE: exact path membership authority failed safely",
+                    )
+                    return
 
             if not file_doc:
                 # Target path does not exist in snapshot

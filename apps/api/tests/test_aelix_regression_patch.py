@@ -162,6 +162,11 @@ class InMemoryCollection:
         return results
 
 
+class PyMongoLikeCollection(InMemoryCollection):
+    def __bool__(self):
+        raise NotImplementedError("Collection objects do not support truth-value testing")
+
+
 class InMemoryDatabase:
     def __init__(self):
         self.repository_files = InMemoryCollection()
@@ -627,6 +632,19 @@ async def test_obligation_extraction_derives_must_exist_from_candidate_plan_and_
     # Deterministic Gate MUST be naturally BLOCKED
     assert updated_run.status == VerificationRunStatus.BLOCKED
 
+    # Assert check_path_membership executed and NO lexical fallback ran for missing AuthProvider
+    tool_runs = [doc async for doc in test_db.tool_runs.find({"run_id": run_id})]
+    tool_names = [tool["tool_name"] for tool in tool_runs]
+    assert "check_path_membership" in tool_names
+
+    auth_fallbacks = [
+        tool
+        for tool in tool_runs
+        if tool["tool_name"] in {"search_code_lexical", "find_symbol", "read_file_range"}
+        and "AuthProvider" in str(tool.get("input_summary", {}))
+    ]
+    assert auth_fallbacks == []
+
 
 @pytest.mark.asyncio
 async def test_create_does_not_derive_must_exist():
@@ -735,3 +753,139 @@ async def test_submodule_child_returns_insufficient():
         "cannot issue conclusive membership evidence for inconclusive or submodule child path"
         in str(exc.value)
     )
+
+
+@pytest.mark.asyncio
+async def test_manifest_state_does_not_truth_test_pymongo_collection():
+    from app.services.evidence import _inspect_path_manifest_state
+
+    db = InMemoryDatabase()
+
+    real_snapshots = PyMongoLikeCollection()
+    db.repository_snapshots = real_snapshots
+
+    await db.repository_snapshots.insert_one(
+        {
+            "id": "snap-prod-like",
+            "status": "READY",
+            "manifest_complete": True,
+            "manifest_hash": "manifest-hash",
+        }
+    )
+
+    # Complete manifest deliberately does NOT contain the target.
+    await db.snapshot_manifest.insert_one(
+        {
+            "snapshot_id": "snap-prod-like",
+            "path": "src/App.tsx",
+            "git_mode": "100644",
+            "object_type": "blob",
+            "object_sha": "abc123",
+            "path_kind": "regular_blob",
+        }
+    )
+
+    state, snapshot = await _inspect_path_manifest_state(
+        db,
+        "snap-prod-like",
+        "src/auth/AuthProvider.tsx",
+    )
+
+    assert state == "ABSENT"
+    assert snapshot is not None
+    assert snapshot["manifest_complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_evidence_authority_end_to_end_issue_and_validate_path_membership():
+    from app.domain.runs import RepositorySnapshot, SnapshotStatus
+    from app.domain.verification import (
+        Criticality,
+        EvidenceType,
+        ObligationCategory,
+        ObligationStatus,
+        ProofObligation,
+        SemanticRole,
+        ToolRun,
+        ToolRunStatus,
+    )
+    from app.repositories.runs import RunRepository
+    from app.repositories.verification import VerificationRepository
+    from app.services.evidence import EvidenceAuthority
+
+    test_db = InMemoryDatabase()
+    run_repo = RunRepository(test_db)
+    ver_repo = VerificationRepository(test_db)
+
+    snapshot_id = "snap-auth-test"
+    snapshot = RepositorySnapshot(
+        id=snapshot_id,
+        project_id="proj-1",
+        repository_identity="test/auth",
+        parser_version="1.0.0",
+        index_version="1.0.0",
+        status=SnapshotStatus.READY,
+        files_indexed=1,
+        root_content_hash="roothash",
+        manifest_complete=True,
+        manifest_entry_count=1,
+        manifest_hash="manifesthash-123",
+    )
+    await run_repo.create_snapshot(snapshot)
+
+    # Manifest with only src/App.tsx
+    await test_db.snapshot_manifest.insert_one(
+        {
+            "snapshot_id": snapshot_id,
+            "path": "src/App.tsx",
+            "git_mode": "100644",
+            "object_type": "blob",
+            "object_sha": "sha-app",
+            "path_kind": "regular_blob",
+        }
+    )
+
+    tool_run = ToolRun(
+        id="tool-check-membership-1",
+        snapshot_id=snapshot_id,
+        run_id="run-auth-1",
+        tool_name="check_path_membership",
+        status=ToolRunStatus.SUCCEEDED,
+        input_hash="hash",
+        input_summary={"path": "src/auth/AuthProvider.tsx"},
+        duration_ms=1,
+    )
+    await ver_repo.create_tool_run(tool_run)
+
+    obligation = ProofObligation(
+        id="ob-auth-1",
+        project_id="proj-1",
+        plan_version_id="pv-1",
+        snapshot_id=snapshot_id,
+        run_id="run-auth-1",
+        semantic_role=SemanticRole.EXISTING_DEPENDENCY,
+        statement="src/auth/AuthProvider.tsx exists in the current snapshot.",
+        normalized_statement="src/auth/authprovider.tsx exists in the current snapshot.",
+        category=ObligationCategory.DEPENDENCY,
+        criticality=Criticality.HIGH,
+        status=ObligationStatus.PENDING,
+    )
+    await ver_repo.create_obligation(obligation)
+
+    authority = EvidenceAuthority(ver_repo)
+    evidence = await authority.issue_path_membership(
+        snapshot_id=snapshot_id,
+        tool_run_id=tool_run.id,
+        run_id="run-auth-1",
+        obligation_id=obligation.id,
+        path="src/auth/AuthProvider.tsx",
+        present=False,
+        relationship="CONTRADICTS",
+        summary="Exact path 'src/auth/AuthProvider.tsx' is absent from complete repository snapshot manifest",
+    )
+
+    validated_evidence = await authority.validate(evidence.id)
+    assert validated_evidence.evidence_type == EvidenceType.SNAPSHOT_PATH_MEMBERSHIP
+    assert validated_evidence.relationship == "CONTRADICTS"
+    assert validated_evidence.path == "src/auth/AuthProvider.tsx"
+    assert validated_evidence.content_hash == "manifesthash-123"

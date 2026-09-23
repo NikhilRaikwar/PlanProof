@@ -12,7 +12,9 @@ async def _inspect_path_manifest_state(
     Returns (PRESENT | ABSENT | INCONCLUSIVE, snapshot_doc)
     """
     snapshots_col = getattr(database, "repository_snapshots", None)
-    snapshot = await snapshots_col.find_one({"id": snapshot_id}) if snapshots_col else None
+    snapshot = (
+        await snapshots_col.find_one({"id": snapshot_id}) if snapshots_col is not None else None
+    )
     if not snapshot or snapshot.get("status") != "READY":
         return "INCONCLUSIVE", snapshot
 
