@@ -1,4 +1,4 @@
-# Five-minute PlanProof demonstration
+# PlanProof Demo Walkthrough
 
 1. Open **Repositories** and choose the clearly labelled demo fixture.
 2. Wait for the real immutable snapshot to report `READY`.

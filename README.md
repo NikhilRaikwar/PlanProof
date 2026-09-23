@@ -38,7 +38,7 @@
 - [Security & Trust Boundaries](docs/SECURITY.md)
 - [27-Case Evaluation Harness](docs/EVALUATIONS.md)
 - [Google Cloud Production Deployment](docs/DEPLOYMENT_GCP.md)
-- [60-Second Demo Walkthrough](docs/DEMO.md)
+- [Demo Walkthrough](docs/DEMO.md)
 - [Production Readiness Audit](docs/production-readiness.md)
 
 ---
@@ -781,7 +781,7 @@ See [docs/DEPLOYMENT_GCP.md](docs/DEPLOYMENT_GCP.md) for full deployment scripts
 
 ---
 
-## 60-Second Demo
+## Demo Walkthrough
 
 1. **Connect GitHub**: Authorize the GitHub App and select a repository.
 2. **Resolve Commit**: Select a branch; PlanProof resolves the branch HEAD to an exact commit SHA and creates an immutable snapshot.
