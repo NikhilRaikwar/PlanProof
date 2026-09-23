@@ -17,10 +17,11 @@
 [![MongoDB Atlas](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
 [![Redis](https://img.shields.io/badge/Redis-Memorystore-DC382D?style=flat-square&logo=redis&logoColor=white)](https://cloud.google.com/memorystore)
 
-```text
-       The model proposes; deterministic code authorizes.
-       LLMs for ambiguity; deterministic software for authority.
-```
+<p align="center">
+  <strong>Engineering plans are hypotheses. PlanProof tests them before agents build them.</strong><br />
+  <em>The model proposes; deterministic code authorizes.</em><br />
+  <em>LLMs for ambiguity; deterministic software for authority.</em>
+</p>
 
 [**Live Web App**](https://planproof.nikhilraikwar.me) • [**Architecture**](docs/ARCHITECTURE.md) • [**Security**](docs/SECURITY.md) • [**Evaluations**](docs/EVALUATIONS.md) • [**GCP Deployment**](docs/DEPLOYMENT_GCP.md)
 
@@ -623,7 +624,7 @@ PlanProof treats all external input—repositories, model outputs, and user plan
 - **Path Containment**: All file operations enforce normalized relative paths (`PurePosixPath`). Absolute paths, directory traversal (`../`), and symlink escapes are strictly blocked.
 - **Prompt Injection Defense**: Repository content and user change requests are wrapped in structured JSON boundaries, preventing untrusted repository comments or README files from hijacking model instructions.
 - **Least-Privilege GitHub Permissions**: Requires strictly read-only access to repository contents and metadata.
-- **Secret Hygiene**: All production credentials reside exclusively in **GCP Secret Manager**. Zero secrets exist in client bundles, git history, or build substitutions.
+- **Secret Hygiene**: Production credentials are stored in Secret Manager; the tracked source tree and frontend bundle are covered by repository secret-scan checks.
 
 See [docs/SECURITY.md](docs/SECURITY.md) for full security controls.
 
@@ -690,7 +691,7 @@ Current main is validated in GitHub Actions with:
 | **Verification Engine** | [`apps/api/app/workflow/engine.py`](apps/api/app/workflow/engine.py) | Single-orchestrator LangGraph state machine, tool dispatching, HITL questions, and gate policy. |
 | **Worker Task** | [`apps/api/app/workflow/worker.py`](apps/api/app/workflow/worker.py) | Dramatiq actor entrypoint processing verification jobs from Redis. |
 | **Model Gateway** | [`apps/api/app/services/models.py`](apps/api/app/services/models.py) | OpenRouter primary with automatic AIMLAPI fallback, JSON schema validation, and exponential backoff. |
-| **Mongo Collections** | [`apps/api/app/db/indexes.py`](apps/api/app/db/indexes.py) | Idempotent index definitions across all 15 MongoDB Atlas collections. |
+| **Mongo Collections** | [`apps/api/app/db/indexes.py`](apps/api/app/db/indexes.py) | Idempotent index definitions for MongoDB Atlas collections storing projects, snapshots, runs, evidence, and traces. |
 | **Evaluation Suite** | [`evals/cases/v1/`](evals/cases/v1/) | 27 versioned evaluation cases testing schema, contracts, idempotency, security, and budgets. |
 | **Workspace Dashboard** | [`app/workspace/page.tsx`](app/workspace/page.tsx) | Next.js 16 workspace cockpit showing repositories, snapshots, and recent verification runs. |
 | **Run Cockpit** | [`app/workspace/runs/[runId]/page.tsx`](app/workspace/runs/[runId]/page.tsx) | Real-time verification run view with obligations, evidence viewer, tool traces, and HITL decision cards. |
@@ -799,8 +800,8 @@ See [docs/DEMO.md](docs/DEMO.md) for the complete script.
 
 | Architectural Decision | Chosen Strategy | Alternative Rejected | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Deterministic Validators First** | Run AST & lexical checks before LLM | LLM-only reasoning | Deterministic code is 100x faster, zero-cost, and completely free from hallucination. |
-| **Orchestration Model** | Single LangGraph state machine | Autonomous multi-agent swarm | Multi-agent swarms lack causal auditability and suffer from compounding token latency. |
+| **Deterministic Validators First** | Run AST & lexical checks before LLM | LLM-only reasoning | Deterministic checks are predictable, inexpensive, reproducible, and do not delegate repository authority to model-generated assertions. |
+| **Orchestration Model** | Single LangGraph state machine | Autonomous multi-agent swarm | A single bounded orchestrator keeps PlanProof's causal trace easier to audit and avoids unnecessary coordination complexity for this workflow. |
 | **Code Retrieval** | Indexed symbols + lexical search | Vector semantic embeddings | Verification requires exact syntax and cryptographic line provenance, not fuzzy semantic similarity. |
 | **Repository State** | Immutable commit snapshots | Dynamic `HEAD` branch polling | Branch mutations during investigation invalidate evidence provenance. |
 | **Evidence Authority** | Server-issued evidence records | Model-asserted proof quotes | Prevents models from fabricating evidence or misquoting source lines. |
@@ -828,5 +829,11 @@ See [docs/DEMO.md](docs/DEMO.md) for the complete script.
 ---
 
 <p align="center">
-  <sub>Built by Nikhil Raikwar • PlanProof Engineering</sub>
+  <sub>
+    Built by <a href="https://github.com/NikhilRaikwar"><strong>Nikhil Raikwar</strong></a> · PlanProof
+  </sub>
+  <br />
+  <sub>
+    Open source under the <a href="LICENSE">MIT License</a>.
+  </sub>
 </p>

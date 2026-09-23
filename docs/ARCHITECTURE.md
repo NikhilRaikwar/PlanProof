@@ -80,8 +80,9 @@ Candidate engineering plans mix present-state assumptions, external dependencies
 
 A fundamental principle in repository verification is: **absence of evidence is not evidence of absence**.
 
-- If a lexical search or symbol lookup for a proposed component (e.g., `CustomAuthProvider`) yields 0 results, the system marks the investigation **`INCONCLUSIVE`** (safe abstention due to budget or search scope), rather than making an unverified assumption of contradiction.
-- A claim of non-existence is only deterministically verified when an **exhaustive exact-path snapshot lookup** confirms that a specific path (e.g., `components/auth-modal.tsx`) is absent from the snapshot file tree.
+- Search miss != absence; symbol miss != absence; lexical miss != absence. If a lexical search or symbol lookup for a proposed component yields 0 results, the system marks the investigation **`INCONCLUSIVE`** (safe abstention due to budget or search scope), rather than making an unverified assumption of contradiction.
+- Exact path absence is deterministically verified ONLY when a **complete immutable tracked Git path manifest** confirms that the exact canonical path (e.g., `src/auth/AuthProvider.tsx`) is absent from the snapshot.
+- If the manifest is incomplete, or if the path lies underneath an unsnapshotted submodule gitlink, the result remains **`INCONCLUSIVE`**.
 
 ## Structural Separation of Current Facts vs. Future Actions
 

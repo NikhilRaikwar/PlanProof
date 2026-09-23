@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   applicationName: 'PlanProof',
   authors: [{ name: 'Nikhil Raikwar', url: 'https://github.com/NikhilRaikwar' }],
   creator: 'Nikhil Raikwar',
-  publisher: 'PlanProof',
+  publisher: 'Nikhil Raikwar',
   category: 'Developer Tools',
   alternates: {
     canonical: '/',

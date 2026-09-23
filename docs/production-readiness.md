@@ -13,7 +13,7 @@
 | **Web Service** | Cloud Run: `planproof-web` | **READY** | `https://planproof-web-lfrrer4z6q-el.a.run.app` |
 | **API Service** | Cloud Run: `planproof-api` | **READY** | `https://planproof-api-lfrrer4z6q-el.a.run.app` |
 | **Health Probe** | `/health/ready` | **HEALTHY** | Returns `{"status":"ok","mongo":"ok","redis":"ok"}` |
-| **Database** | MongoDB Atlas (`planproofapp`) | **HEALTHY** | 14 collections with unique & compound indexes verified |
+| **Database** | MongoDB Atlas (`planproofapp`) | **HEALTHY** | Collections with unique & compound indexes verified across snapshots, runs, and evaluations |
 | **Queue / Cache** | Memorystore / Redis | **HEALTHY** | Task delivery, rate limiting, and deduplication verified |
 | **GitHub App** | `PlanProof Verification` | **AUTHENTICATED**| Live verified via GitHub App installation |
 | **Model Gateway** | OpenRouter (Primary) / AIMLAPI (Fallback) | **ACTIVE** | Server-side credentials, structured output validation |
@@ -68,4 +68,4 @@ Current main is validated in GitHub Actions with:
 | **API returns 503 on connect** | Check `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` in environment | Ensure `.pem` private key is loaded in Secret Manager / `.env` |
 | **Worker tasks stay QUEUED** | Check Redis connectivity & Dramatiq worker logs | Ensure Dramatiq worker process is active and subscribed to Redis broker |
 | **Human Question Pending** | Check `/workspace` dashboard or `/workspace/runs/{id}` | Submit answer via UI; workflow automatically resumes to final gate |
-| **Rate Limit Exceeded (429)** | Check client request frequency | Boundaries are bounded at 300 requests/minute per client |
+| **Rate Limit Exceeded (429)** | Check client request frequency | Redis-backed request rate limits are configurable through production settings |

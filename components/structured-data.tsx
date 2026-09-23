@@ -45,12 +45,9 @@ export function StructuredData() {
     url: siteUrl,
     description: 'Pre-flight verification for AI-generated engineering plans.',
     publisher: {
-      '@type': 'Organization',
-      name: 'PlanProof',
-      logo: {
-        '@type': 'ImageObject',
-        url: `${siteUrl}/logo.png`,
-      },
+      '@type': 'Person',
+      name: 'Nikhil Raikwar',
+      url: 'https://github.com/NikhilRaikwar',
     },
   }
 

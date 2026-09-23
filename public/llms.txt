@@ -16,8 +16,8 @@ PlanProof is a pre-flight verification system for AI-generated software engineer
 
 ## Key Architectural Principles
 - **The model proposes; deterministic code authorizes**: Models extract structured proof obligations; deterministic code validates schemas, executes snapshot-scoped repository tools, evaluates evidence sufficiency, mints evidence IDs, and computes final gate status.
-- **Single Orchestrator vs. Multi-Agent Swarms**: A single auditable orchestrator ensures complete causal traceability, lower latency, durable MongoDB run state, and reliable resumption through Redis/Dramatiq.
-- **Exact Symbol Indexing vs. Premature Vector RAG**: Code verification prioritizes exact syntactic symbol definitions, paths, source ranges, and SHA-256 content hashes rather than fuzzy semantic retrieval.
+- **Single Orchestrator vs. Multi-Agent Swarms**: A single bounded orchestrator keeps the causal workflow straightforward to audit; durable state lives in MongoDB and Redis/Dramatiq transports/resumes work.
+- **Indexed Symbols + Exact Source Evidence vs. Premature Vector RAG**: Code verification prioritizes exact syntactic symbol definitions, paths, source ranges, and SHA-256 content hashes rather than fuzzy semantic retrieval.
 
 ## Public Resources & Documentation
 - Homepage: https://planproof.nikhilraikwar.me
