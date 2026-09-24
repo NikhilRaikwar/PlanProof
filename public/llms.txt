@@ -9,14 +9,14 @@ PlanProof is a pre-flight verification system for AI-generated software engineer
 - Pre-flight plan verification against real Git commit snapshots.
 - Cryptographically verified server-issued evidence authority (SHA-256 hashes, file line ranges).
 - Deterministic repository tools (Python stdlib `ast.parse`, lightweight TS/JS symbol indexing, bounded lexical search).
-- Single bounded orchestrator with durable MongoDB state and async Redis/Dramatiq worker execution.
+- Single bounded orchestrator with durable MongoDB state and scale-to-zero async Cloud Tasks worker execution.
 - Human-in-the-loop (HITL) authority boundaries (`HUMAN_REQUIRED` pause & resumption).
 - Dual model provider redundancy (OpenRouter primary with automatic AIMLAPI fallback).
 - 27-case versioned evaluation harness with explicit regression gating.
 
 ## Key Architectural Principles
 - **The model proposes; deterministic code authorizes**: Models extract structured proof obligations; deterministic code validates schemas, executes snapshot-scoped repository tools, evaluates evidence sufficiency, mints evidence IDs, and computes final gate status.
-- **Single Orchestrator vs. Multi-Agent Swarms**: A single bounded orchestrator keeps the causal workflow straightforward to audit; durable state lives in MongoDB and Redis/Dramatiq transports/resumes work.
+- **Single Orchestrator vs. Multi-Agent Swarms**: A single bounded orchestrator keeps the causal workflow straightforward to audit; durable state lives in MongoDB, Google Cloud Tasks dispatches execution, and a private scale-to-zero worker executes and resumes work.
 - **Indexed Symbols + Exact Source Evidence vs. Premature Vector RAG**: Code verification prioritizes exact syntactic symbol definitions, paths, source ranges, and SHA-256 content hashes rather than fuzzy semantic retrieval.
 
 ## Public Resources & Documentation

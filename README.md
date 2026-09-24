@@ -15,7 +15,7 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.2+-FF4D2E?style=flat-square&logo=diagram&logoColor=white)](https://langchain-ai.github.io/langgraph/)
 [![Google Cloud Run](https://img.shields.io/badge/GCP-Cloud_Run-4285F4?style=flat-square&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
 [![MongoDB Atlas](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
-[![Redis](https://img.shields.io/badge/Redis-Memorystore-DC382D?style=flat-square&logo=redis&logoColor=white)](https://cloud.google.com/memorystore)
+[![Cloud Tasks](https://img.shields.io/badge/GCP-Cloud_Tasks-4285F4?style=flat-square&logo=googlecloud&logoColor=white)](https://cloud.google.com/tasks)
 
 <p align="center">
   <strong>Engineering plans are hypotheses. PlanProof tests them before agents build them.</strong><br />
@@ -280,7 +280,7 @@ flowchart TD
 
 ### Diagram 3: Production GCP Topology
 
-PlanProof is deployed in **Google Cloud Platform (GCP)** region `asia-south1` (Mumbai) under project `planproof-ai`:
+PlanProof is deployed in **Google Cloud Platform (GCP)** region `asia-south1` (Mumbai) under project `planproof-ai` with a **Zero-Idle Serverless Architecture**:
 
 ```mermaid
 flowchart LR
@@ -290,10 +290,11 @@ flowchart LR
   end
 
   subgraph GCP["Google Cloud Platform (asia-south1 / planproof-ai)"]
-    Web[Cloud Run: planproof-web]
-    API[Cloud Run: planproof-api]
-    Worker[Cloud Run Worker Pool]
-    Redis[(Cloud Memorystore Redis)]
+    Web[Cloud Run: planproof-web<br/>Scale-to-Zero]
+    API[Cloud Run: planproof-api<br/>Scale-to-Zero]
+    Tasks[Cloud Tasks: planproof-verification-queue]
+    Worker[Cloud Run: planproof-verification-worker<br/>Scale-to-Zero]
+    Scheduler[Cloud Scheduler: recover-dispatches]
     Secrets[Secret Manager]
   end
 
@@ -311,10 +312,11 @@ flowchart LR
   GitHub --> API
   
   API --> Atlas
-  API --> Redis
+  API --> Tasks
   API -.-> Secrets
 
-  Redis --> Worker
+  Tasks -- OIDC Auth --> Worker
+  Scheduler -- OIDC Auth --> Worker
   Worker --> Atlas
   Worker -.-> Secrets
   Worker --> OpenRouter
@@ -323,7 +325,8 @@ flowchart LR
   style Web fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1
   style API fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
   style Worker fill:#0f172a,stroke:#a855f7,stroke-width:2px,color:#f8fafc
-  style Redis fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#991b1b
+  style Tasks fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#991b1b
+  style Scheduler fill:#fef9c3,stroke:#ca8a04,stroke-width:2px,color:#854d0e
   style Secrets fill:#fdf4ff,stroke:#c084fc,stroke-width:2px,color:#6b21a8
   style Atlas fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
   style OpenRouter fill:#fff1eb,stroke:#ff4d2e,stroke-width:2px,color:#9a1c00
@@ -341,14 +344,14 @@ PlanProof handles asynchronous, long-running verification jobs without blocking 
 ```mermaid
 stateDiagram-v2
   [*] --> CREATED
-  CREATED --> QUEUED: Enqueued to Redis
-  QUEUED --> EXTRACTING_OBLIGATIONS: Worker dequeues
+  CREATED --> QUEUED: Enqueued to Cloud Tasks
+  QUEUED --> EXTRACTING_OBLIGATIONS: Worker claims task (OIDC)
   
   EXTRACTING_OBLIGATIONS --> VERIFYING: Obligations decomposed & saved
   EXTRACTING_OBLIGATIONS --> FAILED: Malformed payload
 
   VERIFYING --> HUMAN_WAIT: Authority gap detected (Draft v1 plan)
-  HUMAN_WAIT --> QUEUED: Human submits decision
+  HUMAN_WAIT --> QUEUED: Human submits decision (New generation enqueued)
   
   VERIFYING --> FINALIZING: All obligations evaluated & facts derived
   
@@ -378,9 +381,9 @@ PlanProof is not a simple `prompt -> model -> response` wrapper. It is a statefu
 3. **Deterministic Bounded Repository Investigation**: Investigation queries are proposed by models and authorized deterministically by backend code, executing against immutable snapshot files with strict bounds.
 4. **Server-Owned Evidence Authority**: Evidence records and cryptographic SHA-256 hashes are minted exclusively by deterministic backend code after audited tool runs.
 5. **Authorized Facts Boundary**: Canonical facts represent immutable present-state truths and cannot semantically expand beyond proved propositions.
-6. **Async Redis/Dramatiq Worker Execution**: Long-running verification runs execute asynchronously in dedicated worker processes, decoupled from web API requests.
+6. **Async Serverless Cloud Tasks Worker Execution**: Long-running verification runs execute asynchronously in dedicated scale-to-zero worker services via Google Cloud Tasks, decoupled from web API requests.
 7. **Provider Retry & Fallback**: Automatic failover from OpenRouter to AIMLAPI prevents provider outages from breaking customer verification runs.
-8. **Persisted HITL Pause + Requeue/Resumption**: When codebase authority is insufficient, the system pauses execution cleanly in `HUMAN_WAIT` and re-enters the graph upon human input without losing prior findings.
+8. **Persisted HITL Pause + Generation Resumption**: When codebase authority is insufficient, the system pauses execution cleanly in `HUMAN_WAIT` and re-enters the graph upon human input with monotonic execution generation without losing prior findings.
 
 ---
 
@@ -494,8 +497,9 @@ PlanProof avoids ephemeral in-memory state. State is categorized cleanly across 
   - `human_questions`: Persisted authority questions, required actors, and answers.
   - `events`: Monotonically sequenced run progress events.
   - `eval_runs`: Versioned offline evaluation results and regression records.
-- **Google Cloud Memorystore (Redis)**: Asynchronous queue transport for Dramatiq worker messages and rate-limiting counters.
-- **Worker Execution Model**: Durable run state is application-owned in MongoDB; Redis/Dramatiq transports and resumes work across worker invocations.
+  - `active_reservations`: Atomic compute slot reservations and TTL leases.
+- **Serverless Cloud Tasks Queue**: Asynchronous HTTP task delivery with Google IAM OIDC authentication and exponential retry policy.
+- **Worker Execution Model**: Durable run state is application-owned in MongoDB; Cloud Tasks triggers execution with monotonic execution generations and zero-idle scale-to-zero compute.
 
 ---
 
@@ -513,7 +517,7 @@ When the orchestrator encounters a claim categorized as `BUSINESS_RULE` or `CROS
 1. The question and rationale are persisted in `human_questions`.
 2. The verification run transitions to `HUMAN_WAIT` and releases worker resources.
 3. The developer or product owner answers the question via the Web UI.
-4. The API enqueues a resumption message to Redis, and the worker completes the run.
+4. The API atomically increments `execution_generation` and enqueues a new Cloud Task, and the worker completes the run.
 5. **Prior counter-evidence is never erased**: Answering a business question will not unblock a plan if code-level contradictions still exist.
 
 ---
@@ -549,21 +553,27 @@ PlanProof integrates natively with GitHub via the official GitHub App (`PlanProo
 
 ## Real Production Proof
 
-PlanProof is fully deployed and validated on Google Cloud Platform:
+PlanProof is fully deployed, zero-idle hardened, and validated on Google Cloud Platform:
 
 - **Live Deployed Services**:
-  - Web UI: `https://planproof-web-lfrrer4z6q-el.a.run.app` (Cloud Run `asia-south1`)
-  - API: `https://planproof-api-lfrrer4z6q-el.a.run.app` (Cloud Run `asia-south1`)
-  - Worker Pool: `planproof-worker` (Cloud Run Worker Pool in `asia-south1`)
-  - Memorystore: Private VPC Redis instance
-  - MongoDB Atlas: `planproofapp` cluster with 15 operational collections
-- **Live GitHub App Smoke Passed**: Authenticated GitHub App sessions verified with least-privilege read-only permissions.
-- **Production E2E Validation Passed**: Complete pre-flight verification workflow validated:
-  - Repository selection and immutable snapshot creation (`READY`).
-  - Obligation extraction, semantic role decomposition, and deterministic tool execution.
-  - Human question pause (`HUMAN_WAIT`) and successful resumption.
-  - Final authoritative `BLOCKED` gate enforcement backed by real counter-evidence.
-  - Evidence-grounded advisory updated implementation plan synthesis.
+  - Web UI: `https://planproof-web-lfrrer4z6q-el.a.run.app` (Cloud Run `asia-south1`, min=0)
+  - API: `https://planproof-api-lfrrer4z6q-el.a.run.app` (Revision `planproof-api-00060-d2l`, min=0)
+  - Worker: `planproof-verification-worker` (Scale-to-Zero Cloud Run service in `asia-south1`, min=0, max=1, timeout=1800s)
+  - Queue: `planproof-verification-queue` (Cloud Tasks with OIDC IAM authentication)
+  - Scheduler: `planproof-outbox-recovery` (Cloud Scheduler periodic outbox dispatcher recovery)
+  - MongoDB Atlas: `planproofapp` cluster (Static egress allowlist via GCP Cloud NAT `34.93.153.36`)
+- **Real Production E2E Verification Proven**:
+  - **Run ID**: `375a0873-1fd5-4172-a025-19510cc03d6a`
+  - **Repository**: `NikhilRaikwar/Aelix` (Snapshot `71f6d0b`, branch `main`, commit `57ef352`)
+  - **Deterministic Task**: `run-375a0873-1fd5-4172-a025-19510cc03d6a-g0`
+  - **Dispatch**: Serverless delivery into `planproof-verification-queue` with OIDC audience verification
+  - **Worker Execution**: Confirmed executed on `planproof-verification-worker-00010-zpr`
+  - **Final Domain State**: `INCONCLUSIVE` (valid verification-domain outcome: literal lexical search found no matching evidence in snapshot, not an infra error)
+  - **Persistence**: 100% durable MongoDB state and real-time SSE event delivery
+- **Redis Decommission & Cost Hardening**:
+  - `REDIS_URL` mapping removed from `planproof-api`; Memorystore `planproof-redis` instance decommissioned.
+  - Near-zero idle verification execution cost: fixed Redis and persistent worker costs eliminated; compute scales to zero.
+  - VPC NAT / static egress IP (`34.93.153.36`) preserved for MongoDB Atlas allowlisting.
 
 ---
 
@@ -645,14 +655,14 @@ See [docs/SECURITY.md](docs/SECURITY.md) for full security controls.
 
 ### Agent & Workflow Engine
 - **Orchestration**: LangGraph 1.2+, StateGraph state machine
-- **Task Queue & Broker**: Dramatiq 1.17+ with Redis broker
+- **Task Dispatch & Queue**: Google Cloud Tasks (`planproof-verification-queue`) with OIDC IAM authentication
 - **Model Gateway**: HTTPX async client, OpenRouter primary, AIMLAPI fallback
 
 ### Infrastructure & Cloud (GCP)
 - **Platform**: Google Cloud Platform (Project: `planproof-ai`, Region: `asia-south1`)
-- **Compute**: Google Cloud Run (Web & API), Cloud Run Worker Pools (Dramatiq)
-- **Storage & Caching**: MongoDB Atlas (`planproofapp`), Cloud Memorystore (Redis)
-- **Security & Networking**: GCP Secret Manager, Artifact Registry, Direct VPC Egress, Cloud NAT
+- **Compute**: Google Cloud Run (Web & API: Scale-to-Zero), Cloud Run Worker (Scale-to-Zero)
+- **Storage & State**: MongoDB Atlas (`planproofapp`)
+- **Security & Networking**: GCP Secret Manager, Artifact Registry, Direct VPC Egress, Cloud NAT, Cloud Tasks
 
 ---
 
@@ -661,8 +671,8 @@ See [docs/SECURITY.md](docs/SECURITY.md) for full security controls.
 PlanProof employs a layered, deterministic testing strategy:
 
 ```text
-├── Backend Unit & Safety Suite       -> FastAPI, AST parsers, tool sandbox, security
-├── Live Atlas & Redis Integration   -> Real MongoDB indexes, Dramatiq worker execution
+├── Backend Unit & Safety Suite       -> FastAPI, AST parsers, tool sandbox, security, zero-idle
+├── Live Atlas Integration            -> Real MongoDB indexes, atomic reservations, TTL leases
 ├── Frontend UI & State Isolation     -> Playwright component & API boundary tests
 ├── GitHub App Live Smoke             -> Live token issuance & repository query
 ├── Seeded Real Production E2E        -> Full browser pre-flight verification
@@ -672,7 +682,7 @@ PlanProof employs a layered, deterministic testing strategy:
 **Continuous Validation in CI**:
 Current main is validated in GitHub Actions with:
 - frontend secret scan, TypeScript typecheck, production build, and Playwright UI suite
-- backend Ruff + pytest
+- backend Ruff + pytest (122+ passing unit and zero-idle tests)
 - deterministic agent-quality/evaluation safety suite
 
 ---
@@ -681,7 +691,9 @@ Current main is validated in GitHub Actions with:
 
 | Component | Path | Description |
 | :--- | :--- | :--- |
-| **API Entrypoint** | [`apps/api/app/main.py`](apps/api/app/main.py) | FastAPI service setup, CORS allowlists, exception handlers, and router registration. |
+| **API Entrypoint** | [`apps/api/app/main.py`](apps/api/app/main.py) | FastAPI service setup, role-based route isolation (`PLANPROOF_RUNTIME_ROLE`), CORS allowlists. |
+| **Worker Endpoints** | [`apps/api/app/api/internal_tasks.py`](apps/api/app/api/internal_tasks.py) | Private Cloud Tasks & Cloud Scheduler execution endpoints with Google OIDC audience validation. |
+| **Cloud Tasks Service** | [`apps/api/app/services/cloud_tasks.py`](apps/api/app/services/cloud_tasks.py) | Serverless task creation with explicit `dispatch_deadline=1800s`, deterministic naming, and outbox recovery. |
 | **GitHub App Auth** | [`apps/api/app/api/github.py`](apps/api/app/api/github.py) | GitHub App JWT signing (RS256), installation tokens, repository queries, and branch SHA resolution. |
 | **Repository Ingestion** | [`apps/api/app/ingestion/service.py`](apps/api/app/ingestion/service.py) | Snapshot materialization, file tree traversal, and content hashing. |
 | **Symbol Parsers** | [`apps/api/app/ingestion/parsers.py`](apps/api/app/ingestion/parsers.py) | Python `ast.parse` symbol extraction and lightweight TS/JS token extraction. |
@@ -689,7 +701,6 @@ Current main is validated in GitHub Actions with:
 | **Evidence Authority** | [`apps/api/app/services/evidence.py`](apps/api/app/services/evidence.py) | Server-side evidence issuance, source range validation, and cryptographic hash verification. |
 | **Revision Engine** | [`apps/api/app/services/revision.py`](apps/api/app/services/revision.py) | Authorized facts derivation, invariant verification, and advisory updated plan synthesis. |
 | **Verification Engine** | [`apps/api/app/workflow/engine.py`](apps/api/app/workflow/engine.py) | Single-orchestrator LangGraph state machine, tool dispatching, HITL questions, and gate policy. |
-| **Worker Task** | [`apps/api/app/workflow/worker.py`](apps/api/app/workflow/worker.py) | Dramatiq actor entrypoint processing verification jobs from Redis. |
 | **Model Gateway** | [`apps/api/app/services/models.py`](apps/api/app/services/models.py) | OpenRouter primary with automatic AIMLAPI fallback, JSON schema validation, and exponential backoff. |
 | **Mongo Collections** | [`apps/api/app/db/indexes.py`](apps/api/app/db/indexes.py) | Idempotent index definitions for MongoDB Atlas collections storing projects, snapshots, runs, evidence, and traces. |
 | **Evaluation Suite** | [`evals/cases/v1/`](evals/cases/v1/) | 27 versioned evaluation cases testing schema, contracts, idempotency, security, and budgets. |
@@ -705,7 +716,6 @@ Current main is validated in GitHub Actions with:
 - **Node.js**: v22+
 - **Python**: 3.11, 3.12, or 3.13
 - **uv**: Fast Python package manager ([docs.astral.sh/uv](https://docs.astral.sh/uv/))
-- **Docker**: For running local Redis
 - **MongoDB Atlas** or local MongoDB instance
 
 ### 1. Clone & Configure Environment
@@ -721,19 +731,12 @@ cp .env.example .env
 ### 2. Start Services
 
 ```bash
-# Terminal 1: Start Redis
-docker compose up -d redis
-
-# Terminal 2: Start FastAPI Backend
+# Terminal 1: Start FastAPI Backend (API Mode)
 cd apps/api
 uv sync --all-groups
-uv run uvicorn app.main:app --reload --port 8000
+PLANPROOF_RUNTIME_ROLE=api uv run uvicorn app.main:app --reload --port 8000
 
-# Terminal 3: Start Dramatiq Worker
-cd apps/api
-uv run dramatiq app.workflow.worker
-
-# Terminal 4: Start Next.js Frontend
+# Terminal 2: Start Next.js Frontend
 npm ci
 npm run dev
 ```
@@ -755,8 +758,8 @@ npm run test:e2e         # Playwright Seeded Real E2E verification test
 # --- Backend Unit, Integration & Lints ---
 cd apps/api
 uv run ruff check app tests      # Fast Python linter
-uv run pytest -q                 # Backend unit & safety suite
-uv run pytest -m integration -q  # Atlas & Redis integration tests
+uv run pytest -q                 # Backend unit & safety suite (122 passing)
+uv run pytest -m integration -q  # Atlas integration tests
 
 # --- Evaluation Harness & Regression Gating ---
 uv run pytest tests/test_evaluation_harness.py -q
@@ -770,10 +773,10 @@ PlanProof runs on Google Cloud Platform in `asia-south1`:
 
 - **GCP Project**: `planproof-ai`
 - **Region**: `asia-south1` (Mumbai)
-- **Web UI**: Cloud Run service `planproof-web`
-- **API**: Cloud Run service `planproof-api`
-- **Worker**: Cloud Run Worker Pool `planproof-worker`
-- **Queue**: Cloud Memorystore (Redis) with Direct VPC Egress & Cloud NAT
+- **Web UI**: Cloud Run service `planproof-web` (Scale-to-Zero)
+- **API**: Cloud Run service `planproof-api` (Scale-to-Zero)
+- **Worker**: Cloud Run service `planproof-verification-worker` (Scale-to-Zero)
+- **Queue**: Cloud Tasks queue `planproof-verification-queue`
 - **Database**: MongoDB Atlas Cluster `planproofapp`
 - **Secrets**: GCP Secret Manager (Zero secrets in code or Docker images)
 
@@ -805,7 +808,7 @@ See [docs/DEMO.md](docs/DEMO.md) for the complete script.
 | **Code Retrieval** | Indexed symbols + lexical search | Vector semantic embeddings | Verification requires exact syntax and cryptographic line provenance, not fuzzy semantic similarity. |
 | **Repository State** | Immutable commit snapshots | Dynamic `HEAD` branch polling | Branch mutations during investigation invalidate evidence provenance. |
 | **Evidence Authority** | Server-issued evidence records | Model-asserted proof quotes | Prevents models from fabricating evidence or misquoting source lines. |
-| **Execution Boundary** | Asynchronous Dramatiq workers | Synchronous HTTP request loop | Verification jobs can take 30+ seconds; long HTTP requests risk timeouts and worker exhaustion. |
+| **Execution Boundary** | Google Cloud Tasks + scale-to-zero Cloud Run worker | Synchronous HTTP request loop | Verification jobs can take 30+ seconds; serverless task dispatch scales compute to zero when idle while preventing HTTP request timeouts. |
 | **Authority Gaps** | `HUMAN_REQUIRED` pause & resume | LLM guessing business rules | Codebases do not contain undocumented human intent; guessing leads to silent production failures. |
 | **Model Redundancy** | OpenRouter primary + AIMLAPI fallback | Single provider dependency | Protects production verification pipeline from 3rd-party provider downtime. |
 

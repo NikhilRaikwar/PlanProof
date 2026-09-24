@@ -2,7 +2,7 @@
 
 PlanProof verifies an AI-generated engineering plan against an exact repository snapshot, separates proposed future actions from present-state facts, and returns an evidence-grounded advisory implementation plan before coding begins.
 
-PlanProof uses one bounded, auditable verification orchestrator rather than a multi-agent swarm. A run is immutable with respect to project, snapshot, and plan version. MongoDB Atlas is the system of record; Redis carries asynchronous work only.
+PlanProof uses one bounded, auditable verification orchestrator rather than a multi-agent swarm. A run is immutable with respect to project, snapshot, and plan version. MongoDB Atlas is the canonical system of record; Cloud Tasks provides durable serverless asynchronous dispatch to scale-to-zero Cloud Run workers.
 
 ```mermaid
 flowchart TD
@@ -107,18 +107,45 @@ PlanProof uses targeted, deterministic repository inspection tools with transpar
 
 The model cannot execute shell commands, choose arbitrary paths outside the snapshot, access host infrastructure, write directly to MongoDB, mint evidence, or override budget policies.
 
-## Durable Flow
+## Runtime Roles & Isolation
+
+The backend container image serves two distinct runtime profiles governed by `PLANPROOF_RUNTIME_ROLE`:
+
+- **API Role (`PLANPROOF_RUNTIME_ROLE=api`)**:
+  - Exposes public and business endpoints (`/health/live`, `/health/ready`, `/v1/auth`, `/v1/projects`, `/v1/snapshots`, `/v1/verification-runs`, `/v1/proof-obligations`, `/v1/evidence`, `/v1/human-questions`, `/v1/system`).
+  - Internal worker task endpoints (`/internal/tasks/*`) are not mounted and return 404.
+  - Enqueues verification runs into Google Cloud Tasks via durable MongoDB outbox pattern.
+- **Worker Role (`PLANPROOF_RUNTIME_ROLE=worker`)**:
+  - Exposes only internal task execution and maintenance endpoints (`/internal/tasks/verification/{run_id}`, `/internal/tasks/recover-dispatches`, `/health/live`, `/health/ready`).
+  - Public API routes are not mounted and return 404.
+  - Requires Google Cloud IAM OIDC bearer authentication with audience matching `PLANPROOF_WORKER_SERVICE_URL`.
+  - Configured with `min-instances=0`, `max-instances=1`, `concurrency=1`, and `timeout=1800s`.
+  - In production, any invalid or unspecified role fails closed immediately on startup.
+
+## Durable Flow & Execution Fencing
 
 ```text
-POST verification run -> Mongo run + event -> Redis/Dramatiq
-worker -> LangGraph bounded state -> investigation -> authorized tools -> evidence -> policy -> facts -> advisory revised plan
-                       \-> HUMAN_WAIT (v1 plan draft) -> persisted answer -> requeued worker -> v2 final plan
+POST verification run -> MongoDB run (PENDING outbox) + event -> Cloud Tasks (OIDC auth, dispatch_deadline=1800s)
+worker -> OIDC verification -> atomic claim (claim_id, expires_at) -> heartbeat -> LangGraph bounded state
+       -> investigation -> authorized tools -> evidence -> policy -> facts -> advisory revised plan
+       \-> HUMAN_WAIT (v1 draft) -> slot released -> persisted answer -> atomic generation increment -> Cloud Tasks (g1) -> v2 final plan
 ```
 
-Every useful artifact is bound to an immutable snapshot. Retries use persisted identifiers and unique indexes so duplicate delivery cannot create duplicate authoritative evidence or terminal transitions.
+Recovery:
+```text
+Cloud Scheduler -> periodic POST /internal/tasks/recover-dispatches (OIDC auth) -> scan un-dispatched PENDING outbox -> Cloud Tasks
+```
 
-## Storage
+Execution fencing mechanics:
+- **Deterministic Task Identity**: `run-<run_id>-g<execution_generation>` ensures Cloud Tasks deduplication does not drop legitimate workflow resumptions across human decision cycles.
+- **Atomic MongoDB Execution Lease**: When worker begins task delivery, it atomically acquires `execution_claim_id`, `claimed_at`, and `claim_expires_at` (120s lease).
+- **Periodic Lease Heartbeat**: The worker periodically extends `claim_expires_at` during long model or tool execution steps.
+- **Retry & Recovery Protocol**: If a delivery arrives while an unexpired lease is held, worker responds `503 Service Unavailable` with `Retry-After: 15` to trigger Cloud Tasks backoff retry. Stale or expired leases from crashed workers are safely reclaimed.
 
-MongoDB collections include `projects`, `repository_snapshots`, `repository_files`, `code_symbols`, `plan_versions`, `verification_runs`, `proof_obligations`, `tool_runs`, `evidence`, `model_calls`, `human_questions`, `events`, `investigation_plans`, `authorized_facts`, `revised_plans`, and `eval_runs`. Indexes match identity, lifecycle, snapshot scope, event sequencing, and evaluator query patterns.
+## Storage & Cost Architecture
 
-Redis is intentionally not authoritative: it transports Dramatiq messages and provides bounded rate-limit counters. If it is mandatory but unavailable, readiness fails closed.
+MongoDB Atlas collections include `projects`, `repository_snapshots`, `repository_files`, `code_symbols`, `plan_versions`, `verification_runs`, `proof_obligations`, `tool_runs`, `evidence`, `model_calls`, `human_questions`, `events`, `investigation_plans`, `authorized_facts`, `revised_plans`, `run_dispatch_outbox`, `active_reservations`, `account_quotas`, and `eval_runs`. Indexes match identity, lifecycle, snapshot scope, event sequencing, outbox recovery, active slots, and evaluator query patterns.
+
+### Cost Position & Static Egress Preservation
+- **Near-zero idle verification execution cost**: Fixed Redis Memorystore and persistent verification-worker instances have been decommissioned. Verification compute scales to zero and is 100% usage-driven.
+- **Network Architecture**: Cloud NAT (`planproof-nat`), Cloud Router (`planproof-router`), and static egress IP (`34.93.153.36`) in `asia-south1` remain intentionally provisioned to maintain the verified static IP allowlist on MongoDB Atlas. Baseline platform usage (Cloud Scheduler, Cloud Tasks, Artifact Registry storage, Cloud Run invocations, NAT egress) operates within standard GCP billing tiers.
