@@ -10,7 +10,7 @@ def test_liveness_is_available_without_database_configuration() -> None:
         response = client.get("/health/live")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "mongo": None, "redis": None}
+    assert response.json() == {"status": "ok", "mongo": None, "queue": None}
 
 
 def test_readiness_fails_closed_without_database_configuration() -> None:
