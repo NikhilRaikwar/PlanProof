@@ -1,11 +1,8 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useState } from 'react'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppTopbar } from '@/components/app-topbar'
-import { api } from '@/lib/api'
-
 import { WorkspaceProvider } from '@/components/workspace-context'
 
 export function WorkspaceShell({
@@ -13,14 +10,7 @@ export function WorkspaceShell({
 }: {
   children: React.ReactNode
 }) {
-  const router = useRouter()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-
-  useEffect(() => {
-    void api.session().catch(() => {
-      router.push('/')
-    })
-  }, [router])
 
   return (
     <WorkspaceProvider>

@@ -27,7 +27,7 @@ type FilterCategory = 'all' | 'indexed' | 'ready' | 'public' | 'private'
 
 export default function RepositoriesPage() {
   const router = useRouter()
-  const { selectedRepo, selectRepository, clearActiveRepository } = useWorkspace()
+  const { session, selectedRepo, selectRepository, clearActiveRepository } = useWorkspace()
   const [items, setItems] = useState<Entry[]>([])
   const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([])
   const [repoRefs, setRepoRefs] = useState<Record<number, GitHubRef[]>>({})
@@ -81,7 +81,7 @@ export default function RepositoriesPage() {
 
   useEffect(() => {
     void load()
-  }, [])
+  }, [session?.installation_id])
 
   // Poll while any snapshot is actively indexing or queued
   useEffect(() => {
@@ -202,8 +202,17 @@ export default function RepositoriesPage() {
             </button>
           )}
 
-          <button 
-            type="button" 
+          <a
+            href={api.connectGithubUrl()}
+            className="btn-secondary-light"
+            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <GithubIcon size={14} />
+            <span>{session ? 'Manage GitHub access' : 'Connect GitHub'}</span>
+          </a>
+
+          <button
+            type="button"
             className="btn-secondary-light"
             onClick={() => void load()}
             disabled={loading}
@@ -212,8 +221,8 @@ export default function RepositoriesPage() {
             <span>Refresh</span>
           </button>
 
-          <button 
-            type="button" 
+          <button
+            type="button"
             className="btn-verify-plan-cta"
             onClick={() => setManualOpen(!manualOpen)}
           >

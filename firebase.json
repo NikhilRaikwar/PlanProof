@@ -8,6 +8,20 @@
     ],
     "rewrites": [
       {
+        "source": "/v1/**",
+        "run": {
+          "serviceId": "planproof-api",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/health/**",
+        "run": {
+          "serviceId": "planproof-api",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "**",
         "run": {
           "serviceId": "planproof-web",

@@ -23,14 +23,14 @@ import {
   Sparkles, 
   User 
 } from 'lucide-react'
-import { api, ApiError, Project, Snapshot, VerificationRun, Session } from '@/lib/api'
+import { api, ApiError, GitHubRepository, Project, Snapshot, VerificationRun, Session } from '@/lib/api'
 import { GithubIcon } from '@/components/repo-context-chip'
 import { useWorkspace } from '@/components/workspace-context'
 
 export default function WorkspaceDashboardPage() {
-  const { selectedRepo, selectRepository } = useWorkspace()
-  const [session, setSession] = useState<Session | null>(null)
+  const { session, userProjects, selectedRepo, selectRepository, refreshProjects } = useWorkspace()
   const [projects, setProjects] = useState<Project[]>([])
+  const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([])
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({})
   const [recentRuns, setRecentRuns] = useState<VerificationRun[]>([])
   const [engineReady, setEngineReady] = useState<boolean | null>(null)
@@ -42,17 +42,16 @@ export default function WorkspaceDashboardPage() {
     setError('')
     void api.health().then(setEngineReady).catch(() => setEngineReady(false))
     try {
-      const [sessionData, projectsData, runsData] = await Promise.all([
-        api.session().catch(() => null),
+      const [projectsData, ghRepos, runsData] = await Promise.all([
         api.workspaceProjects().catch(() => []),
+        api.githubRepositories().catch(() => []),
         api.runs(selectedRepo?.repositoryId).catch(() => [])
       ])
-
-      setSession(sessionData)
 
       // Filter out E2E test data from normal user view
       const normalProjects = projectsData.filter(p => !p.name.startsWith('e2e-'))
       setProjects(normalProjects)
+      setGithubRepos(ghRepos)
       setRecentRuns(runsData.slice(0, 5))
 
       // Load latest snapshot for each project
@@ -79,7 +78,7 @@ export default function WorkspaceDashboardPage() {
 
   useEffect(() => {
     void loadData()
-  }, [selectedRepo?.repositoryId])
+  }, [selectedRepo?.repositoryId, session?.installation_id])
 
   const humanRequiredRuns = recentRuns.filter(r => 
     r.status === 'HUMAN_WAIT' || r.status === 'HUMAN_DECISION_REQUIRED'
@@ -194,7 +193,7 @@ export default function WorkspaceDashboardPage() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid #F1F5F9', fontSize: 12 }}>
             <span style={{ color: '#64748B' }}>Granted Repositories</span>
-            <strong style={{ color: '#0F172A' }}>{projects.length} connected</strong>
+            <strong style={{ color: '#0F172A' }}>{githubRepos.length || projects.length} connected</strong>
           </div>
         </div>
 
@@ -262,6 +261,20 @@ export default function WorkspaceDashboardPage() {
           {loading ? (
             <div className="card-panel-white" style={{ textAlign: 'center', padding: 36, color: '#64748B' }}>
               Loading repositories…
+            </div>
+          ) : projects.length === 0 && githubRepos.length > 0 ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {githubRepos.slice(0, 5).map(repo => (
+                <div key={repo.id} className="card-panel-white" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 14 }}>
+                  <div>
+                    <strong style={{ fontSize: 13.5, color: '#0F172A', display: 'block' }}>{repo.full_name}</strong>
+                    <span style={{ fontSize: 11.5, color: '#64748B' }}>Default branch: {repo.default_branch || 'main'}</span>
+                  </div>
+                  <Link href="/workspace/repositories" className="btn-verify-plan-cta" style={{ fontSize: 11.5, padding: '5px 12px', textDecoration: 'none' }}>
+                    Select & Verify
+                  </Link>
+                </div>
+              ))}
             </div>
           ) : projects.length === 0 ? (
             <div className="card-panel-white" style={{ textAlign: 'center', padding: 36 }}>

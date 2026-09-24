@@ -44,6 +44,19 @@ const nextConfig = {
       },
     ]
   },
+  async rewrites() {
+    const apiTarget = process.env.PLANPROOF_API_URL || 'https://planproof-api-530622821497.asia-south1.run.app'
+    return [
+      {
+        source: '/v1/:path*',
+        destination: `${apiTarget}/v1/:path*`,
+      },
+      {
+        source: '/health/:path*',
+        destination: `${apiTarget}/health/:path*`,
+      },
+    ]
+  },
 }
 
 export default nextConfig
