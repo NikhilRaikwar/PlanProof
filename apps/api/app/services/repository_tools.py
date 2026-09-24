@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from fnmatch import fnmatch
 from pathlib import PurePosixPath
@@ -129,7 +130,7 @@ class RepositoryTools:
         await self._ready(data.snapshot_id)
         query: dict = {
             "snapshot_id": data.snapshot_id,
-            "qualified_name": {"$regex": data.query, "$options": "i"},
+            "qualified_name": {"$regex": re.escape(data.query), "$options": "i"},
         }
         if data.kind:
             query["kind"] = data.kind

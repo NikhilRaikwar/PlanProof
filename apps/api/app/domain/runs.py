@@ -34,6 +34,30 @@ class VerificationRunStatus(StrEnum):
     FAILED = "FAILED"
 
 
+RUNNABLE_INITIAL_STATES: frozenset[str] = frozenset({
+    VerificationRunStatus.CREATED.value,
+    VerificationRunStatus.QUEUED.value,
+})
+
+RECOVERABLE_EXECUTION_STATES: frozenset[str] = frozenset({
+    VerificationRunStatus.EXTRACTING_OBLIGATIONS.value,
+    VerificationRunStatus.VERIFYING.value,
+    VerificationRunStatus.FINALIZING.value,
+})
+
+SUSPENDED_STATES: frozenset[str] = frozenset({
+    VerificationRunStatus.HUMAN_WAIT.value,
+    VerificationRunStatus.HUMAN_DECISION_REQUIRED.value,
+})
+
+TERMINAL_STATES: frozenset[str] = frozenset({
+    VerificationRunStatus.COMPLETE.value,
+    VerificationRunStatus.BLOCKED.value,
+    VerificationRunStatus.INCONCLUSIVE.value,
+    VerificationRunStatus.FAILED.value,
+})
+
+
 class PathKind(StrEnum):
     REGULAR_BLOB = "regular_blob"
     SYMLINK = "symlink"
@@ -157,6 +181,14 @@ class VerificationRun(BaseModel):
     evidence_count: int | None = None
     tool_execution_count: int | None = None
     has_open_human_question: bool | None = None
+    enqueue_state: str = "PENDING"
+    dispatch_attempts: int = 0
+    dispatch_claimed_at: datetime | None = None
+    last_dispatched_at: datetime | None = None
+    execution_generation: int = 0
+    execution_claim_id: str | None = None
+    execution_claimed_at: datetime | None = None
+    execution_lease_expires_at: datetime | None = None
 
 
 class RunEvent(BaseModel):
