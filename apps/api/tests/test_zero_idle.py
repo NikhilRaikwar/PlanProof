@@ -698,7 +698,7 @@ def test_deployment_env_variables_instantiate_production_settings() -> None:
         "PLANPROOF_SCHEDULER_INVOKER_SERVICE_ACCOUNT": "planproof-scheduler-invoker@planproof-ai.iam.gserviceaccount.com",
         "GITHUB_APP_ID": "12345",
         "GITHUB_APP_SLUG": "planproof",
-        "GITHUB_APP_PRIVATE_KEY": "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----",
+        "GITHUB_APP_PRIVATE_KEY": "dummy-github-app-private-key",
         "GITHUB_CLIENT_ID": "gh-client-id",
         "GITHUB_CLIENT_SECRET": "gh-client-secret",
         "SESSION_SECRET": "01234567890123456789012345678901",
