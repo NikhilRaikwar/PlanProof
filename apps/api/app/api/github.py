@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -21,8 +22,16 @@ import jwt
 from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from pymongo.errors import DuplicateKeyError
 
-from app.api.dependencies import get_mongo, get_settings_dep
+from app.api.dependencies import (
+    get_mongo,
+    get_quota_service,
+    get_settings_dep,
+    require_session,
+    sign_cookie_value,
+    validate_signed_cookie,
+)
 from app.core.config import Settings
 from app.db.mongo import MongoManager
 from app.domain.projects import Project, RepositorySourceType
@@ -31,10 +40,13 @@ from app.ingestion.service import INDEX_VERSION, PARSER_VERSION, SnapshotIngesti
 from app.ingestion.sources import GitHubAppSource, seeded_fixture_source
 from app.repositories.projects import ProjectsRepository
 from app.repositories.runs import RunRepository
+from app.services.quotas import QuotaService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["github"])
 _STATE_COOKIE = "planproof_github_state"
-_SESSION_COOKIE = "planproof_session"
+_SESSION_COOKIE = "__session"
 _GITHUB_API = "https://api.github.com"
 
 
@@ -159,51 +171,6 @@ def _client(settings: Settings) -> GitHubAppClient:
     return GitHubAppClient(settings)
 
 
-def _sign(value: str, settings: Settings) -> str:
-    secret = settings.session_secret.get_secret_value().encode()
-    signature = hmac.new(secret, value.encode(), hashlib.sha256).hexdigest()
-    return f"{value}.{signature}"
-
-
-def _validate_signed(value: str | None, settings: Settings) -> str | None:
-    if not value or "." not in value or not settings.session_secret:
-        return None
-    nonce, supplied = value.rsplit(".", 1)
-    expected = _sign(nonce, settings).rsplit(".", 1)[1]
-    return nonce if hmac.compare_digest(supplied, expected) else None
-
-
-async def _session(mongo: MongoManager, settings: Settings, session_cookie: str | None) -> dict:
-    token = _validate_signed(session_cookie, settings)
-    if not token:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "GitHub connection required")
-    item = await mongo.database().github_sessions.find_one(
-        {
-            "token_hash": hashlib.sha256(token.encode()).hexdigest(),
-            "expires_at": {"$gt": datetime.now(UTC)},
-        }
-    )
-    if not item:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "GitHub connection required")
-    return item
-
-
-async def get_optional_session(
-    mongo: MongoManager, settings: Settings, session_cookie: str | None
-) -> dict | None:
-    if not session_cookie:
-        return None
-    token = _validate_signed(session_cookie, settings)
-    if not token:
-        return None
-    return await mongo.database().github_sessions.find_one(
-        {
-            "token_hash": hashlib.sha256(token.encode()).hexdigest(),
-            "expires_at": {"$gt": datetime.now(UTC)},
-        }
-    )
-
-
 async def _installation(session: dict, mongo: MongoManager) -> dict:
     record = await mongo.database().github_installations.find_one(
         {"installation_id": session["installation_id"]}
@@ -228,12 +195,12 @@ async def connect_github(
     response = RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     response.set_cookie(
         _STATE_COOKIE,
-        _sign(nonce, settings),
+        sign_cookie_value(nonce, settings),
         httponly=True,
         secure=settings.session_cookie_secure,
         samesite="none" if settings.session_cookie_secure else "lax",
         max_age=600,
-        path="/v1/auth/github",
+        path="/",
     )
     return response
 
@@ -248,52 +215,96 @@ async def github_callback(
     setup_action: str | None = None,
     planproof_github_state: Annotated[str | None, Cookie()] = None,
 ):
-    if not state or not planproof_github_state:
+    if state and planproof_github_state:
+        expected = validate_signed_cookie(planproof_github_state, settings)
+        if not expected or not hmac.compare_digest(expected, state):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid GitHub connection state")
+
+        # Atomic single-insert guarded by unique index on nonce
+        try:
+            await mongo.database().used_auth_nonces.insert_one(
+                {
+                    "nonce": state,
+                    "created_at": datetime.now(UTC),
+                    "expires_at": datetime.now(UTC) + timedelta(minutes=15),
+                }
+            )
+        except DuplicateKeyError:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "GitHub connection state has already been consumed"
+            ) from None
+    elif setup_action not in {"install", "update"} and not (code or state or installation_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "GitHub connection state is required")
-    expected = _validate_signed(planproof_github_state, settings)
-    if not expected or not hmac.compare_digest(expected, state):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid GitHub connection state")
 
-    used = await mongo.database().used_auth_nonces.find_one({"nonce": state})
-    if used:
+    if settings.github_client_id and settings.github_client_secret and not code:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "GitHub connection state has already been consumed"
+            status.HTTP_400_BAD_REQUEST, "GitHub user OAuth code is required"
         )
-    await mongo.database().used_auth_nonces.insert_one(
-        {
-            "nonce": state,
-            "created_at": datetime.now(UTC),
-            "expires_at": datetime.now(UTC) + timedelta(minutes=15),
-        }
-    )
 
+    client = _client(settings)
     try:
-        installation = await _client(settings).verify_installation(installation_id)
-    except RuntimeError as exc:
+        installation = await client.verify_installation(installation_id)
+    except Exception as exc:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, "GitHub installation verification failed"
         ) from exc
+
     account = installation.get("account", {})
-    login = account.get("login")
-    if not isinstance(login, str):
+    inst_login = account.get("login")
+    if not isinstance(inst_login, str):
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "GitHub installation account is invalid")
+
+    final_login = inst_login
+
+    if code and settings.github_client_id and settings.github_client_secret:
+        try:
+            async with httpx.AsyncClient(timeout=10) as http_c:
+                token_resp = await http_c.post(
+                    "https://github.com/login/oauth/access_token",
+                    headers={"Accept": "application/json"},
+                    data={
+                        "client_id": settings.github_client_id,
+                        "client_secret": settings.github_client_secret.get_secret_value(),
+                        "code": code,
+                        "state": state or "",
+                    },
+                )
+                if token_resp.status_code == 200:
+                    user_token_data = token_resp.json()
+                    u_token = user_token_data.get("access_token")
+                    if u_token:
+                        u_resp = await http_c.get(
+                            f"{_GITHUB_API}/user",
+                            headers={
+                                "Authorization": f"Bearer {u_token}",
+                                "Accept": "application/vnd.github+json",
+                            },
+                        )
+                        if u_resp.status_code == 200:
+                            user_data = u_resp.json()
+                            user_login = user_data.get("login")
+                            if user_login:
+                                final_login = user_login
+        except Exception as exc:
+            logger.warning("github_user_oauth_failed error=%s", exc)
 
     existing_inst = await mongo.database().github_installations.find_one(
         {"installation_id": installation_id}
     )
     if existing_inst:
         existing_login = existing_inst.get("account_login")
-        if existing_login and existing_login != login:
+        if existing_login and existing_login != final_login and existing_login != inst_login:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, "installation is bound to another GitHub account"
             )
+
     now = datetime.now(UTC)
     await mongo.database().github_installations.update_one(
         {"installation_id": installation_id},
         {
             "$set": {
                 "installation_id": installation_id,
-                "account_login": login,
+                "account_login": final_login,
                 "account_id": account.get("id"),
                 "updated_at": now,
                 "permissions": installation.get("permissions", {}),
@@ -303,39 +314,85 @@ async def github_callback(
         upsert=True,
     )
     token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
     await mongo.database().github_sessions.insert_one(
         {
-            "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+            "token_hash": token_hash,
             "installation_id": installation_id,
-            "account_login": login,
+            "account_login": final_login,
             "created_at": now,
             "expires_at": now + timedelta(days=7),
         }
     )
+    signed_token = sign_cookie_value(token, settings)
     cookie_samesite = "none" if settings.session_cookie_secure else "lax"
     response = RedirectResponse(
-        f"{settings.web_origins[0]}/workspace", status_code=status.HTTP_303_SEE_OTHER
+        f"{settings.web_origins[0]}/workspace?session_token={quote(signed_token)}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
     response.set_cookie(
         _SESSION_COOKIE,
-        _sign(token, settings),
+        signed_token,
         httponly=True,
         secure=settings.session_cookie_secure,
         samesite=cookie_samesite,
         max_age=7 * 24 * 60 * 60,
         path="/",
     )
-    response.delete_cookie(_STATE_COOKIE, path="/v1/auth/github")
+    response.delete_cookie(_STATE_COOKIE, path="/")
     return response
+
+
+class SessionClaimRequest(BaseModel):
+    session_token: str
+
+
+@router.post("/auth/session/claim")
+async def claim_session(
+    payload: SessionClaimRequest,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+):
+    token = validate_signed_cookie(payload.session_token, settings)
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid session token")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    session = await mongo.database().github_sessions.find_one(
+        {
+            "token_hash": token_hash,
+            "expires_at": {"$gt": datetime.now(UTC)},
+        }
+    )
+    if not session:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "session expired or not found")
+
+    from fastapi.responses import JSONResponse
+
+    cookie_samesite = "none" if settings.session_cookie_secure else "lax"
+    resp = JSONResponse(
+        {
+            "connected": True,
+            "account_login": session["account_login"],
+            "installation_id": session["installation_id"],
+            "session_token": payload.session_token,
+        }
+    )
+    resp.set_cookie(
+        _SESSION_COOKIE,
+        payload.session_token,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite=cookie_samesite,
+        max_age=7 * 24 * 60 * 60,
+        path="/",
+    )
+    return resp
 
 
 @router.get("/auth/session")
 async def session_status(
-    mongo: Annotated[MongoManager, Depends(get_mongo)],
-    settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
 ):
-    session = await _session(mongo, settings, planproof_session)
     return {
         "connected": True,
         "account_login": session["account_login"],
@@ -349,7 +406,7 @@ async def logout(
     settings: Annotated[Settings, Depends(get_settings_dep)],
     planproof_session: Annotated[str | None, Cookie()] = None,
 ):
-    token = _validate_signed(planproof_session, settings)
+    token = validate_signed_cookie(planproof_session, settings)
     if token:
         await mongo.database().github_sessions.delete_many(
             {"token_hash": hashlib.sha256(token.encode()).hexdigest()}
@@ -365,9 +422,8 @@ async def logout(
 async def connected_repositories(
     mongo: Annotated[MongoManager, Depends(get_mongo)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
 ):
-    session = await _session(mongo, settings, planproof_session)
     installation = await _installation(session, mongo)
     try:
         return await _client(settings).repositories(installation["installation_id"])
@@ -380,11 +436,9 @@ async def connected_repositories(
 @router.get("/workspace/projects", response_model=list[Project])
 async def workspace_projects(
     mongo: Annotated[MongoManager, Depends(get_mongo)],
-    settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
     include_demo: bool = False,
 ):
-    session = await _session(mongo, settings, planproof_session)
     query: dict[str, Any] = {"owner_id": session["account_login"]}
     if include_demo:
         query["data_scope"] = {"$in": ["USER", "DEMO"]}
@@ -402,9 +456,12 @@ async def workspace_projects(
 async def create_demo_snapshot(
     mongo: Annotated[MongoManager, Depends(get_mongo)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
+    quota_service: Annotated[QuotaService, Depends(get_quota_service)],
 ):
-    session = await _session(mongo, settings, planproof_session)
+    account_key = str(session.get("installation_id") or session["account_login"])
+    await quota_service.reserve_snapshot_quota(account_key, session["account_login"])
+
     project_document = await mongo.database().projects.find_one(
         {
             "owner_id": session["account_login"],
@@ -436,7 +493,12 @@ async def create_demo_snapshot(
         index_version=INDEX_VERSION,
     )
     await records.create_snapshot(snapshot)
-    return await SnapshotIngestionService(records).ingest(snapshot.id, source)
+    await quota_service.acquire_active_ingestion_reservation(session["account_login"], snapshot.id)
+    try:
+        result = await SnapshotIngestionService(records, settings=settings).ingest(snapshot.id, source)
+        return result
+    finally:
+        await quota_service.release_active_reservation(snapshot.id)
 
 
 @router.get("/github/repositories/{repository_id}/refs", response_model=list[GitHubRef])
@@ -444,9 +506,8 @@ async def repository_refs(
     repository_id: int,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
 ):
-    session = await _session(mongo, settings, planproof_session)
     installation = await _installation(session, mongo)
     client = _client(settings)
     repositories = await client.repositories(installation["installation_id"])
@@ -468,9 +529,12 @@ async def create_connected_snapshot(
     request: CreateConnectedSnapshotRequest,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
+    quota_service: Annotated[QuotaService, Depends(get_quota_service)],
 ):
-    session = await _session(mongo, settings, planproof_session)
+    account_key = str(session.get("installation_id") or session["account_login"])
+    await quota_service.reserve_snapshot_quota(account_key, session["account_login"])
+
     installation = await _installation(session, mongo)
     client = _client(settings)
     repositories = await client.repositories(installation["installation_id"])
@@ -521,4 +585,9 @@ async def create_connected_snapshot(
         index_version=INDEX_VERSION,
     )
     await records.create_snapshot(snapshot)
-    return await SnapshotIngestionService(records).ingest(snapshot.id, source)
+    await quota_service.acquire_active_ingestion_reservation(session["account_login"], snapshot.id)
+    try:
+        result = await SnapshotIngestionService(records, settings=settings).ingest(snapshot.id, source)
+        return result
+    finally:
+        await quota_service.release_active_reservation(snapshot.id)

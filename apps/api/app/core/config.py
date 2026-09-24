@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     )
 
     planproof_env: str = Field(default="development", pattern="^(development|test|production)$")
+    planproof_runtime_role: str = Field(default="api", pattern="^(api|worker)$")
     planproof_api_url: AnyHttpUrl = "http://localhost:8000"
     planproof_web_origins: str = "http://localhost:3000"
 
@@ -48,15 +49,46 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(default=1200, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
 
+    # Public Beta feature switches and quotas
+    planproof_verification_enabled: bool = True
+    planproof_ingestion_enabled: bool = True
+    planproof_free_runs_per_day: int = Field(default=3, ge=1, le=100)
+    planproof_free_runs_per_month: int = Field(default=10, ge=1, le=1000)
+    planproof_global_runs_per_day: int = Field(default=30, ge=1, le=10000)
+    planproof_max_active_runs_per_account: int = Field(default=1, ge=1, le=10)
+    planproof_max_active_runs_per_project: int = Field(default=1, ge=1, le=10)
+    planproof_max_projects_per_account: int = Field(default=3, ge=1, le=50)
+    planproof_max_project_creations_per_account: int = Field(default=3, ge=1, le=50)
+    planproof_snapshots_per_day: int = Field(default=5, ge=1, le=50)
+    planproof_max_active_ingestions_per_account: int = Field(default=1, ge=1, le=10)
+    planproof_max_repo_files: int = Field(default=2000, ge=10, le=50000)
+    planproof_max_manifest_entries: int = Field(default=10000, ge=10, le=100000)
+    planproof_max_indexed_bytes: int = Field(default=15_000_000, ge=1000, le=100_000_000)
+    planproof_max_repo_workspace_bytes: int = Field(default=200_000_000, ge=10000, le=1_000_000_000)
+    planproof_max_model_output_tokens: int = Field(default=3000, ge=100, le=8192)
+    planproof_max_provider_attempts_per_run: int = Field(default=6, ge=1, le=20)
+
+    # GitHub OAuth / User authorization credentials (canonical names)
+    github_client_id: str | None = None
+    github_client_secret: SecretStr | None = None
+
     openrouter_api_key: SecretStr | None = None
     openrouter_base_url: AnyHttpUrl = "https://openrouter.ai/api/v1"
-    openrouter_primary_model: str | None = None
+    openrouter_primary_model: str = Field(default="openai/gpt-4.1-mini")
     aimlapi_api_key: SecretStr | None = None
     aimlapi_base_url: AnyHttpUrl = "https://api.aimlapi.com/v1"
-    aimlapi_fallback_model: str | None = None
+    aimlapi_fallback_model: str = Field(default="gpt-4.1-mini")
 
     otel_exporter_otlp_endpoint: AnyHttpUrl | None = None
     otel_service_name: str = "planproof-api"
+
+    # Cloud Tasks & Scale-to-Zero Worker Service configuration
+    planproof_gcp_project_id: str | None = None
+    planproof_cloud_tasks_location: str = "asia-south1"
+    planproof_cloud_tasks_queue: str = "planproof-verification"
+    planproof_worker_service_url: AnyHttpUrl | None = None
+    planproof_tasks_invoker_service_account: str | None = None
+    planproof_scheduler_invoker_service_account: str | None = None
 
     @model_validator(mode="after")
     def require_production_database(self) -> Settings:
@@ -64,10 +96,20 @@ class Settings(BaseSettings):
             self.session_cookie_secure = True
             if self.mongodb_uri is None:
                 raise ValueError("MONGODB_URI is required in production")
-            if self.redis_url is None:
-                raise ValueError("REDIS_URL is required in production")
             if self.mongo_tls_insecure:
                 raise ValueError("mongo_tls_insecure cannot be True in production environment")
+            if self.planproof_runtime_role == "api":
+                if self.session_secret is None:
+                    raise ValueError("SESSION_SECRET is required in production")
+                if not self.github_app_id or not self.github_app_private_key:
+                    raise ValueError("GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required in production")
+            if self.planproof_verification_enabled:
+                if not self.planproof_gcp_project_id:
+                    raise ValueError("PLANPROOF_GCP_PROJECT_ID is required in production for Cloud Tasks")
+                if not self.planproof_worker_service_url:
+                    raise ValueError("PLANPROOF_WORKER_SERVICE_URL is required in production for Cloud Tasks")
+                if not self.planproof_tasks_invoker_service_account:
+                    raise ValueError("PLANPROOF_TASKS_INVOKER_SERVICE_ACCOUNT is required in production for OIDC")
         return self
 
     @field_validator("github_app_id", "github_app_slug", mode="before")
