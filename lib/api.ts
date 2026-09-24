@@ -202,16 +202,52 @@ export type RunProjection = {
 }
 
 export type EvaluationRun = { eval_run_id: string; timestamp: string; sample_count: number; metrics: Record<string, number>; limitations: string[] }
-export type Session = { connected: true; account_login: string; installation_id: number }
+export type Session = { connected: true; account_login: string; installation_id: number; session_token?: string }
 export type GitHubRepository = { id: number; owner: string; name: string; full_name: string; private: boolean; default_branch: string }
 export type GitHubRef = { name: string; commit_sha: string }
 
 export class ApiError extends Error { constructor(public status: number, message: string) { super(message) } }
-const base = (process.env.NEXT_PUBLIC_PLANPROOF_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+
+const SESSION_STORAGE_KEY = 'planproof_session_token'
+
+export function getStoredSessionToken(): string | null {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(SESSION_STORAGE_KEY)
+  }
+  return null
+}
+
+export function setStoredSessionToken(token: string | null) {
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem(SESSION_STORAGE_KEY, token)
+    } else {
+      localStorage.removeItem(SESSION_STORAGE_KEY)
+    }
+  }
+}
+
+function getBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return ''
+    }
+    return (process.env.NEXT_PUBLIC_PLANPROOF_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+  }
+  return (process.env.PLANPROOF_API_URL || process.env.NEXT_PUBLIC_PLANPROOF_API_URL || '').replace(/\/$/, '')
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const base = getBaseUrl()
+  const token = getStoredSessionToken()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(init?.headers as Record<string, string> || {}),
+  }
+
   let response: Response
-  try { response = await fetch(`${base}/v1${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...init?.headers } }) }
+  try { response = await fetch(`${base}/v1${path}`, { ...init, credentials: 'include', headers }) }
   catch { throw new ApiError(0, 'PlanProof backend is unavailable.') }
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
@@ -221,12 +257,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => fetch(`${base}/health/ready`).then(r => r.ok),
+  health: () => {
+    const base = getBaseUrl()
+    return fetch(`${base}/health/ready`).then(r => r.ok)
+  },
   projects: () => request<Project[]>('/projects'),
   workspaceProjects: (includeDemo = false) => request<Project[]>(`/workspace/projects${includeDemo ? '?include_demo=true' : ''}`),
   session: () => request<Session>('/auth/session'),
-  logout: () => request<{ connected: false }>('/auth/logout', { method: 'POST' }),
-  connectGithubUrl: () => `${base}/v1/auth/github/connect`,
+  claimSession: async (sessionToken: string) => {
+    setStoredSessionToken(sessionToken)
+    try {
+      const sess = await request<Session>('/auth/session/claim', { method: 'POST', body: JSON.stringify({ session_token: sessionToken }) })
+      if (sess?.session_token) {
+        setStoredSessionToken(sess.session_token)
+      }
+      return sess
+    } catch (err) {
+      setStoredSessionToken(null)
+      throw err
+    }
+  },
+  logout: async () => {
+    setStoredSessionToken(null)
+    return request<{ connected: false }>('/auth/logout', { method: 'POST' })
+  },
+  connectGithubUrl: () => {
+    const base = getBaseUrl()
+    return `${base}/v1/auth/github/connect`
+  },
   githubRepositories: () => request<GitHubRepository[]>('/github/repositories'),
   githubRefs: (repositoryId: number) => request<GitHubRef[]>(`/github/repositories/${repositoryId}/refs`),
   createConnectedSnapshot: (repositoryId: number, requested_ref?: string) => request<Snapshot>(`/github/repositories/${repositoryId}/snapshots`, { method: 'POST', body: JSON.stringify({ requested_ref }) }),
@@ -246,5 +304,5 @@ export const api = {
   revisedPlan: (runId: string) => request<RevisedPlan | null>(`/verification-runs/${runId}/revised-plan`),
   revisedPlans: (runId: string) => request<RevisedPlan[]>(`/verification-runs/${runId}/revised-plans`),
   latestEvaluation: () => request<EvaluationRun>('/evaluations/latest'),
-  eventsUrl: (id: string) => `${base}/v1/verification-runs/${id}/events`,
+  eventsUrl: (id: string) => `${getBaseUrl()}/v1/verification-runs/${id}/events`,
 }

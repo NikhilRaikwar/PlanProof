@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import UTC, datetime
@@ -748,7 +749,46 @@ class VerificationWorkflow:
         self.graph = graph.compile()
 
     async def run(self, run_id: str) -> None:
-        await self.graph.ainvoke({"run_id": run_id})
+        run = await self.runs.get_run(run_id)
+        if not run:
+            return
+
+        # Start lease renewal heartbeat loop for long-running executions
+        heartbeat_task = None
+        if hasattr(self.verification, "database") and self.verification.database is not None:
+            try:
+                project = await self.verification.database.projects.find_one({"id": run.project_id})
+                account_login = project.get("owner_id") if project else None
+                if account_login:
+                    from app.services.quotas import QuotaService
+
+                    quota_service = QuotaService(self.verification.database, self.settings)
+
+                    async def _heartbeat_loop() -> None:
+                        try:
+                            while True:
+                                await asyncio.sleep(20)
+                                await quota_service.renew_active_reservation(
+                                    account_login, run.project_id, run.id
+                                )
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as exc:
+                            logger.warning("lease_heartbeat_failed run_id=%s error=%s", run_id, exc)
+
+                    heartbeat_task = asyncio.create_task(_heartbeat_loop())
+            except Exception:
+                pass
+
+        try:
+            await self.graph.ainvoke({"run_id": run_id})
+        finally:
+            if heartbeat_task and not heartbeat_task.done():
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
 
     async def _execute(self, state: WorkflowState) -> WorkflowState:
         run = await self.runs.get_run(state["run_id"])
@@ -779,11 +819,11 @@ class VerificationWorkflow:
                     normalized_steps=plan.normalized_steps,
                     run_id=run.id,
                 )
-                run.model_call_count += 1
-                if extracted and extracted[0].proposal_metadata:
-                    meta = extracted[0].proposal_metadata
-                    run.prompt_tokens += int(meta.get("prompt_tokens", 0) or 0)
-                    run.completion_tokens += int(meta.get("completion_tokens", 0) or 0)
+                updated_run = await self.runs.get_run(run.id)
+                if updated_run:
+                    run.model_call_count = updated_run.model_call_count
+                    run.prompt_tokens = updated_run.prompt_tokens
+                    run.completion_tokens = updated_run.completion_tokens
             except Exception as exc:
                 logger.exception("Structured obligation extraction failed", exc_info=exc)
                 run.status = VerificationRunStatus.FAILED

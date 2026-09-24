@@ -14,6 +14,35 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("token_hash", ASCENDING)], unique=True),
         IndexModel([("expires_at", ASCENDING)], expireAfterSeconds=0),
     ],
+    "used_auth_nonces": [
+        IndexModel([("nonce", ASCENDING)], unique=True),
+        IndexModel([("expires_at", ASCENDING)], expireAfterSeconds=0),
+    ],
+    "account_quotas": [
+        IndexModel(
+            [
+                ("scope_type", ASCENDING),
+                ("scope_id", ASCENDING),
+                ("quota_type", ASCENDING),
+                ("period_start", ASCENDING),
+            ],
+            unique=True,
+            name="quota_canonical_bucket_unique",
+        ),
+        IndexModel([("updated_at", DESCENDING)]),
+    ],
+    "active_reservations": [
+        IndexModel([("slot_id", ASCENDING)], unique=True),
+        IndexModel([("resource_id", ASCENDING)]),
+        IndexModel(
+            [
+                ("account_login", ASCENDING),
+                ("resource_type", ASCENDING),
+                ("status", ASCENDING),
+            ]
+        ),
+        IndexModel([("expires_at", ASCENDING)], expireAfterSeconds=0),
+    ],
     "repository_snapshots": [
         IndexModel(
             [
@@ -43,9 +72,10 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("project_id", ASCENDING), ("created_at", DESCENDING)]),
         IndexModel([("status", ASCENDING), ("updated_at", ASCENDING)]),
         IndexModel(
-            [("idempotency_key", ASCENDING)],
+            [("project_id", ASCENDING), ("idempotency_key", ASCENDING)],
             unique=True,
             partialFilterExpression={"idempotency_key": {"$type": "string"}},
+            name="verification_runs_project_idempotency_unique",
         ),
     ],
     "proof_obligations": [
@@ -100,6 +130,12 @@ async def ensure_indexes(database: AsyncDatabase) -> None:
         except OperationFailure as exc:
             if exc.code != 27:  # IndexNotFound is expected on fresh databases.
                 raise
+
+    try:
+        await database.verification_runs.drop_index("idempotency_key_1")
+    except OperationFailure as exc:
+        if exc.code != 27:
+            raise
 
     for collection, indexes in INDEXES.items():
         await database.get_collection(collection).create_indexes(indexes)

@@ -4,12 +4,14 @@ import asyncio
 import hashlib
 import shutil
 import subprocess
+import sys
 import tempfile
 from os import environ
 from pathlib import Path
 
 from pymongo.errors import DuplicateKeyError
 
+from app.core.config import Settings, get_settings
 from app.domain.runs import PathKind, SnapshotManifestEntry, SnapshotStatus
 from app.ingestion.parsers import ExtractedSymbol, extract_jsts_symbols, extract_python_symbols
 from app.ingestion.sources import (
@@ -45,8 +47,9 @@ _LANGUAGES = {
 
 
 class SnapshotIngestionService:
-    def __init__(self, records: RunRepository) -> None:
+    def __init__(self, records: RunRepository, settings: Settings | None = None) -> None:
         self.records = records
+        self.settings = settings or get_settings()
 
     async def ingest(self, snapshot_id: str, source: RepositorySource):
         snapshot = await self.records.get_snapshot(snapshot_id)
@@ -143,22 +146,43 @@ class SnapshotIngestionService:
         try:
             if isinstance(source, SeededFixtureSource):
                 shutil.copytree(source.fixture_path, destination, symlinks=False)
+                self._check_workspace_size(destination)
                 return root, destination, hashlib.sha256(self._tree_bytes(destination)).hexdigest()
-            assert isinstance(source, (PublicGitHubSource, GitHubAppSource))
-            command = ["git", "-c", "credential.helper=", "clone", "--depth", "1"]
-            if isinstance(source, GitHubAppSource):
-                # Avoid embedding credentials in the clone URL or persistent
-                # repository state. git receives a short-lived header only.
-                import base64
 
-                basic = base64.b64encode(
-                    f"x-access-token:{source.installation_token}".encode()
-                ).decode()
-                command[1:1] = ["-c", f"http.extraHeader=AUTHORIZATION: basic {basic}"]
+            assert isinstance(source, (PublicGitHubSource, GitHubAppSource))
+            command = [
+                "git",
+                "-c",
+                "credential.helper=",
+                "clone",
+                "--depth",
+                "1",
+                "--single-branch",
+                "--no-tags",
+            ]
+            git_environment = {
+                **environ,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GCM_INTERACTIVE": "Never",
+                "GIT_LFS_SKIP_SMUDGE": "1",
+            }
+
+            clone_target = source.clone_url
+            if isinstance(source, GitHubAppSource):
+                # Token security: Pass credential via GIT_ASKPASS script to prevent token in process argv
+                askpass_script = root / "askpass.py"
+                askpass_script.write_text(
+                    "import os, sys\nsys.stdout.write(os.environ.get('PLANPROOF_GIT_TOKEN', ''))\n",
+                    encoding="utf-8",
+                )
+                git_environment["GIT_ASKPASS"] = f"{sys.executable} {askpass_script.as_posix()}"
+                git_environment["PLANPROOF_GIT_TOKEN"] = source.installation_token
+                clone_target = f"https://x-access-token@github.com/{source.owner}/{source.repository}.git"
+
             if source.requested_ref:
                 command.extend(["--branch", source.requested_ref])
-            command.extend([source.clone_url, str(destination)])
-            git_environment = {**environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "Never"}
+            command.extend([clone_target, str(destination)])
+
             subprocess.run(
                 command,
                 check=True,
@@ -166,6 +190,9 @@ class SnapshotIngestionService:
                 timeout=60,
                 env=git_environment,
             )
+
+            self._check_workspace_size(destination)
+
             sha = subprocess.run(
                 ["git", "-C", str(destination), "rev-parse", "HEAD"],
                 check=True,
@@ -178,9 +205,21 @@ class SnapshotIngestionService:
             shutil.rmtree(root, ignore_errors=True)
             raise
 
+    def _check_workspace_size(self, root: Path) -> None:
+        total_size = 0
+        for p in root.rglob("*"):
+            if p.is_file() and not p.is_symlink():
+                total_size += p.stat().st_size
+                if total_size > self.settings.planproof_max_repo_workspace_bytes:
+                    raise ValueError(
+                        f"repository workspace size ({total_size} bytes) exceeds maximum limit of {self.settings.planproof_max_repo_workspace_bytes} bytes"
+                    )
+
     def _inventory(self, root: Path) -> tuple[list[dict], str, int]:
         entries: list[dict] = []
         ignored = 0
+        total_indexed_bytes = 0
+
         for path in sorted(root.rglob("*")):
             relative_path = path.relative_to(root)
             if any(part in _IGNORE_DIRS for part in relative_path.parts):
@@ -197,6 +236,13 @@ class SnapshotIngestionService:
             if b"\0" in raw or path.suffix.lower() not in _LANGUAGES:
                 ignored += 1
                 continue
+
+            total_indexed_bytes += len(raw)
+            if total_indexed_bytes > self.settings.planproof_max_indexed_bytes:
+                raise ValueError(
+                    f"indexed repository bytes ({total_indexed_bytes}) exceed maximum limit of {self.settings.planproof_max_indexed_bytes} bytes"
+                )
+
             entries.append(
                 {
                     "relative_path": relative,
@@ -207,6 +253,12 @@ class SnapshotIngestionService:
                     "text": raw.decode("utf-8", errors="strict"),
                 }
             )
+
+            if len(entries) > self.settings.planproof_max_repo_files:
+                raise ValueError(
+                    f"repository file count ({len(entries)}) exceeds maximum limit of {self.settings.planproof_max_repo_files} files"
+                )
+
         root_hash = hashlib.sha256(
             "".join(f"{x['relative_path']}:{x['content_hash']}\n" for x in entries).encode()
         ).hexdigest()
@@ -270,6 +322,10 @@ class SnapshotIngestionService:
                         path_kind=kind,
                     )
                 )
+                if len(entries) > self.settings.planproof_max_manifest_entries:
+                    raise ValueError(
+                        f"manifest entry count exceeds maximum limit of {self.settings.planproof_max_manifest_entries}"
+                    )
         else:
             for path in sorted(root.rglob("*")):
                 if path.is_symlink():
@@ -296,6 +352,10 @@ class SnapshotIngestionService:
                             object_sha=hashlib.sha256(raw).hexdigest(),
                             path_kind=PathKind.REGULAR_BLOB,
                         )
+                    )
+                if len(entries) > self.settings.planproof_max_manifest_entries:
+                    raise ValueError(
+                        f"manifest entry count exceeds maximum limit of {self.settings.planproof_max_manifest_entries}"
                     )
 
         entries.sort(key=lambda e: e.path)

@@ -16,7 +16,7 @@ logger = logging.getLogger("planproof.health")
 class HealthResponse(BaseModel):
     status: str
     mongo: str | None = None
-    redis: str | None = None
+    queue: str | None = None
 
 
 @router.get("/live", response_model=HealthResponse)
@@ -37,19 +37,11 @@ async def ready(
             detail="required dependency is not configured",
         ) from exc
     except Exception as exc:
-        # Keep the public readiness response deliberately generic while retaining
-        # a non-secret diagnostic category in structured application logs.
         logger.warning("readiness_mongo_unavailable error_type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="required dependency is unavailable",
         ) from exc
-    try:
-        await request.app.state.redis.ping()
-    except Exception as exc:
-        logger.warning("readiness_redis_unavailable error_type=%s", type(exc).__name__)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="required dependency is unavailable",
-        ) from exc
-    return HealthResponse(status="ok", mongo="ok", redis="ok")
+
+    queue_status = "cloud_tasks" if request.app.state.settings.planproof_verification_enabled else "disabled"
+    return HealthResponse(status="ok", mongo="ok", queue=queue_status)

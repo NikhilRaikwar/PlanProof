@@ -1,18 +1,24 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_mongo, get_settings_dep, verify_tenant_project_access
-from app.api.github import get_optional_session
-from app.core.config import Settings, get_settings
+from app.api.dependencies import (
+    get_authorized_project,
+    get_mongo,
+    get_quota_service,
+    get_settings_dep,
+    require_session,
+    verify_tenant_project_access,
+)
+from app.core.config import Settings
 from app.db.mongo import MongoManager
 from app.domain.runs import PlanVersion
-from app.repositories.projects import ProjectsRepository
 from app.repositories.runs import RunRepository
 from app.repositories.verification import VerificationRepository
 from app.services.models import ProviderGateway
 from app.services.obligations import ObligationExtractionService
+from app.services.quotas import QuotaService
 from app.services.repository_tools import (
     FindSymbolInput,
     ListFilesInput,
@@ -46,14 +52,9 @@ async def create_plan(
     project_id: str,
     request: CreatePlanRequest,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
-    settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
 ):
-    session = await get_optional_session(mongo, settings, planproof_session)
-    project = await ProjectsRepository(mongo).get(project_id)
-    if not project:
-        raise HTTPException(404, "project not found")
-    verify_tenant_project_access(project, session)
+    await get_authorized_project(project_id, mongo, session)
     records = RunRepository(mongo)
     count = await mongo.database().plan_versions.count_documents({"project_id": project_id})
     item = PlanVersion(project_id=project_id, version=count + 1, **request.model_dump())
@@ -66,9 +67,15 @@ async def extract(
     request: ExtractRequest,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
+    quota_service: Annotated[QuotaService, Depends(get_quota_service)],
 ):
-    session = await get_optional_session(mongo, settings, planproof_session)
+    # Disable low-level direct extraction route in production
+    if settings.planproof_env == "production":
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "direct extraction debug route is disabled in production"
+        )
+
     records = RunRepository(mongo)
     plan = await records.get_plan_version(plan_version_id)
     snapshot = await records.get_snapshot(request.snapshot_id)
@@ -79,23 +86,50 @@ async def extract(
         or snapshot.status != "READY"
     ):
         raise HTTPException(422, "plan and READY snapshot must belong to the same project")
-    project = await mongo.database().projects.find_one({"id": plan.project_id})
-    if project:
-        verify_tenant_project_access(project, session)
-    repo = VerificationRepository(mongo)
-    service = ObligationExtractionService(ProviderGateway(get_settings(), repo), repo)
-    return await service.extract(
-        plan.project_id,
-        snapshot.id,
-        plan.id,
-        plan.change_request,
-        plan.candidate_plan,
-        normalized_steps=plan.normalized_steps,
+
+    await get_authorized_project(plan.project_id, mongo, session)
+
+    account_key = str(session.get("installation_id") or session["account_login"])
+    reserved = await quota_service.reserve_verification_run_quota(
+        account_key, session["account_login"]
     )
+    try:
+        repo = VerificationRepository(mongo)
+        service = ObligationExtractionService(ProviderGateway(settings, repo), repo)
+        return await service.extract(
+            plan.project_id,
+            snapshot.id,
+            plan.id,
+            plan.change_request,
+            plan.candidate_plan,
+            normalized_steps=plan.normalized_steps,
+        )
+    finally:
+        await quota_service.rollback_verification_run_quota(reserved)
 
 
 @router.post("/tools/execute")
-async def execute_tool(request: ToolRequest, mongo: Annotated[MongoManager, Depends(get_mongo)]):
+async def execute_tool(
+    request: ToolRequest,
+    mongo: Annotated[MongoManager, Depends(get_mongo)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    session: Annotated[dict, Depends(require_session)],
+):
+    # Disable public tool execution in production
+    if settings.planproof_env == "production":
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "tool execution debug route is disabled in production"
+        )
+
+    # In dev/test, verify snapshot exists and belongs to authenticated tenant
+    snapshot_id = request.input.get("snapshot_id")
+    if not snapshot_id:
+        raise HTTPException(422, "snapshot_id is required in tool input")
+    snapshot = await RunRepository(mongo).get_snapshot(snapshot_id)
+    if not snapshot:
+        raise HTTPException(404, "snapshot not found")
+    await get_authorized_project(snapshot.project_id, mongo, session)
+
     tools = RepositoryTools(RunRepository(mongo), VerificationRepository(mongo))
     models = {
         "list_files": ListFilesInput,
@@ -116,16 +150,15 @@ async def execute_tool(request: ToolRequest, mongo: Annotated[MongoManager, Depe
 async def get_obligation(
     item_id: str,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
-    settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
 ):
-    session = await get_optional_session(mongo, settings, planproof_session)
     item = await VerificationRepository(mongo).get_obligation(item_id)
     if not item:
         raise HTTPException(404, "proof obligation not found")
     project = await mongo.database().projects.find_one({"id": item.project_id})
-    if project:
-        verify_tenant_project_access(project, session)
+    if not project:
+        raise HTTPException(404, "proof obligation not found")
+    verify_tenant_project_access(project, session)
     return item
 
 
@@ -133,16 +166,16 @@ async def get_obligation(
 async def get_evidence(
     item_id: str,
     mongo: Annotated[MongoManager, Depends(get_mongo)],
-    settings: Annotated[Settings, Depends(get_settings_dep)],
-    planproof_session: Annotated[str | None, Cookie()] = None,
+    session: Annotated[dict, Depends(require_session)],
 ):
-    session = await get_optional_session(mongo, settings, planproof_session)
     item = await VerificationRepository(mongo).get_evidence(item_id)
     if not item:
         raise HTTPException(404, "evidence not found")
     snapshot = await mongo.database().repository_snapshots.find_one({"id": item.snapshot_id})
-    if snapshot:
-        project = await mongo.database().projects.find_one({"id": snapshot.get("project_id")})
-        if project:
-            verify_tenant_project_access(project, session)
+    if not snapshot:
+        raise HTTPException(404, "evidence not found")
+    project = await mongo.database().projects.find_one({"id": snapshot.get("project_id")})
+    if not project:
+        raise HTTPException(404, "evidence not found")
+    verify_tenant_project_access(project, session)
     return item

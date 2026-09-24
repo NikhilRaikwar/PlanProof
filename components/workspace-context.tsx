@@ -48,7 +48,25 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const sess = await api.session().catch(() => null)
+      let sess: Session | null = null
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        const sessionToken = params.get('session_token')
+        if (sessionToken) {
+          try {
+            sess = await api.claimSession(sessionToken)
+            params.delete('session_token')
+            const newQuery = params.toString()
+            const cleanUrl = window.location.pathname + (newQuery ? `?${newQuery}` : '')
+            window.history.replaceState({}, document.title, cleanUrl)
+          } catch {
+            // Ignore claim errors
+          }
+        }
+      }
+      if (!sess) {
+        sess = await api.session().catch(() => null)
+      }
       setSession(sess)
 
       if (!sess?.installation_id) {

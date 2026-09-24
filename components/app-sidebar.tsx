@@ -15,7 +15,8 @@ import {
   Terminal,
   User,
 } from 'lucide-react'
-import { api, Session } from '@/lib/api'
+import { api } from '@/lib/api'
+import { useWorkspace } from '@/components/workspace-context'
 
 export interface AppSidebarProps {
   mobileOpen?: boolean
@@ -25,12 +26,11 @@ export interface AppSidebarProps {
 export function AppSidebar({ mobileOpen = false, onCloseMobile }: AppSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const { session } = useWorkspace()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [session, setSession] = useState<Session | null>(null)
   const [engineReady, setEngineReady] = useState<boolean | null>(null)
 
   useEffect(() => {
-    void api.session().then(setSession).catch(() => setSession(null))
     void api.health().then(setEngineReady).catch(() => setEngineReady(false))
   }, [])
 
