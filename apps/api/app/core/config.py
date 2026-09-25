@@ -103,13 +103,13 @@ class Settings(BaseSettings):
                     raise ValueError("SESSION_SECRET is required in production")
                 if not self.github_app_id or not self.github_app_private_key:
                     raise ValueError("GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required in production")
-            if self.planproof_verification_enabled:
-                if not self.planproof_gcp_project_id:
-                    raise ValueError("PLANPROOF_GCP_PROJECT_ID is required in production for Cloud Tasks")
-                if not self.planproof_worker_service_url:
-                    raise ValueError("PLANPROOF_WORKER_SERVICE_URL is required in production for Cloud Tasks")
-                if not self.planproof_tasks_invoker_service_account:
-                    raise ValueError("PLANPROOF_TASKS_INVOKER_SERVICE_ACCOUNT is required in production for OIDC")
+                if self.planproof_verification_enabled:
+                    if not self.planproof_gcp_project_id:
+                        raise ValueError("PLANPROOF_GCP_PROJECT_ID is required in production for Cloud Tasks")
+                    if not self.planproof_worker_service_url:
+                        raise ValueError("PLANPROOF_WORKER_SERVICE_URL is required in production for Cloud Tasks")
+                    if not self.planproof_tasks_invoker_service_account:
+                        raise ValueError("PLANPROOF_TASKS_INVOKER_SERVICE_ACCOUNT is required in production for OIDC")
         return self
 
     @field_validator("github_app_id", "github_app_slug", mode="before")
