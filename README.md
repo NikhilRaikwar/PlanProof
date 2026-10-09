@@ -8,7 +8,6 @@
 
 **PlanProof verifies an AI-generated engineering plan against an exact repository snapshot, separates proposed future actions from present-state facts, and returns an evidence-grounded advisory implementation plan before coding begins.**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-planproof.nikhilraikwar.me-FF4D2E?style=for-the-badge&logo=googlecloud&logoColor=white)](https://planproof.nikhilraikwar.me)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16.3-black?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org/)
@@ -23,15 +22,17 @@
   <em>LLMs for ambiguity; deterministic software for authority.</em>
 </p>
 
-[**Live Web App**](https://planproof.nikhilraikwar.me) • [**Architecture**](docs/ARCHITECTURE.md) • [**Security**](docs/SECURITY.md) • [**Evaluations**](docs/EVALUATIONS.md) • [**GCP Deployment**](docs/DEPLOYMENT_GCP.md)
+> **Measured:** 27-case eval set · 100% pass · 0 adversarial regressions · real GitHub run caught a missing plan dependency → BLOCKED gate ([Evaluations](docs/EVALUATIONS.md))
+
+[**Demo Walkthrough**](#demo-walkthrough) • [**Architecture**](docs/ARCHITECTURE.md) • [**Security**](docs/SECURITY.md) • [**Evaluations**](docs/EVALUATIONS.md) • [**GCP Deployment**](docs/DEPLOYMENT_GCP.md)
 
 </div>
 
 ---
 
-**Live Production Deployment**:
-- **Branded Web UI**: [https://planproof.nikhilraikwar.me](https://planproof.nikhilraikwar.me) (Firebase CDN front door → Cloud Run `asia-south1`)
-- **Authoritative API**: [https://planproof-api-lfrrer4z6q-el.a.run.app](https://planproof-api-lfrrer4z6q-el.a.run.app)
+> **Deployment status (Oct 2026):** the production deployment is temporarily offline —
+> this repo is the source of truth. The GCP topology it ran on is documented in
+> [GCP Deployment Summary](#gcp-deployment-summary) below; the full stack runs locally via `docker-compose up`.
 
 **Documentation & Deep Dives**:
 - [Architecture & State Machine](docs/ARCHITECTURE.md)
@@ -553,11 +554,11 @@ PlanProof integrates natively with GitHub via the official GitHub App (`PlanProo
 
 ## Real Production Proof
 
-PlanProof is fully deployed, zero-idle hardened, and validated on Google Cloud Platform:
+PlanProof was deployed, zero-idle hardened, and validated on Google Cloud Platform:
 
-- **Live Deployed Services**:
-  - Web UI: `https://planproof-web-lfrrer4z6q-el.a.run.app` (Cloud Run `asia-south1`, min=0)
-  - API: `https://planproof-api-lfrrer4z6q-el.a.run.app` (Revision `planproof-api-00060-d2l`, min=0)
+- **GCP Deployed Services (Historical Production Topology)**:
+  - Web UI: ran at `https://planproof-web-lfrrer4z6q-el.a.run.app` (Cloud Run `asia-south1`, min=0)
+  - API: ran at `https://planproof-api-lfrrer4z6q-el.a.run.app` (Revision `planproof-api-00060-d2l` served in production, min=0)
   - Worker: `planproof-verification-worker` (Scale-to-Zero Cloud Run service in `asia-south1`, min=0, max=1, timeout=1800s)
   - Queue: `planproof-verification-queue` (Cloud Tasks with OIDC IAM authentication)
   - Scheduler: `planproof-outbox-recovery` (Cloud Scheduler periodic outbox dispatcher recovery)
@@ -769,7 +770,7 @@ uv run pytest tests/test_evaluation_harness.py -q
 
 ## GCP Deployment Summary
 
-PlanProof runs on Google Cloud Platform in `asia-south1`:
+PlanProof's verified production topology on Google Cloud Platform in `asia-south1`:
 
 - **GCP Project**: `planproof-ai`
 - **Region**: `asia-south1` (Mumbai)
