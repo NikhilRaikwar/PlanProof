@@ -22,7 +22,7 @@
   <em>LLMs for ambiguity; deterministic software for authority.</em>
 </p>
 
-> **Measured:** 27-case eval set · 100% pass · 0 adversarial regressions · real GitHub run caught a missing plan dependency → BLOCKED gate ([Evaluations](docs/EVALUATIONS.md))
+> **Measured:** 27-case versioned eval set · 100% status accuracy · regression gate: PASS · 100% evidence provenance validity ([Evaluations](docs/EVALUATIONS.md))
 
 [**Demo Walkthrough**](#demo-walkthrough) • [**Architecture**](docs/ARCHITECTURE.md) • [**Security**](docs/SECURITY.md) • [**Evaluations**](docs/EVALUATIONS.md) • [**GCP Deployment**](docs/DEPLOYMENT_GCP.md)
 
